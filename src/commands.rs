@@ -586,7 +586,7 @@ pub fn confirm(task: String) -> Result<()> {
 
 /// The loop-group rule shared by start and complete. Returns the blocks
 /// that the group does not cover.
-fn uncovered(c: &Ctx, id: &str, group: &BTreeSet<TaskId>, completing: bool) -> Vec<String> {
+fn uncovered(c: &Ctx, id: &str, group: &BTreeSet<TaskId>) -> Vec<String> {
     let mut out = Vec::new();
     for b in c.derived.blocks(&c.plan, id) {
         match b {
@@ -644,7 +644,7 @@ fn transition(tasks: Vec<String>, force: bool, kind: EventKind) -> Result<()> {
             (Status::InProgress, false) => bail!("{} is already in progress", c.plan.label(id)),
             _ => {}
         }
-        for u in uncovered(&c, id, &group, completing) {
+        for u in uncovered(&c, id, &group) {
             problems.push(format!("{}: {}", c.plan.label(id), u));
         }
     }

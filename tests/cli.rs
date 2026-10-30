@@ -68,17 +68,17 @@ fn breakdown_is_atomic_and_hands_requirements_down() {
     // No narrative: refused.
     let bad2 = p.file("bad2.md", "= child: a\n= req r1 -> 1\n= req r2 -> 1\n= req r3 -> all\n");
     assert!(p.fails(&["breakdown", "1.2", "-F", &bad2]).contains("narrative"));
-    // Good: r1 (fair) to child 2, r2 (help) to child 3, r3 stays.
-    let good = p.file("good.md", "= child: store\n= child: pick\n= child: help\n= narrative\nstore, pick, help\n= req r1 -> 2\n= req r2 -> 3\n= req r3 -> all\n");
+    // Good: r2 (fair) to child 2, r3 (help) to child 3, r4 stays (r1 is Dana's).
+    let good = p.file("good.md", "= child: store\n= child: pick\n= child: help\n= narrative\nstore, pick, help\n= req r2 -> 2\n= req r3 -> 3\n= req r4 -> all\n");
     p.ok(&["breakdown", "1.2", "-F", &good]);
     let ready = p.ok(&["ready"]);
     assert!(ready.contains("1.2.1"), "store is unblocked: {}", ready);
     assert!(!ready.contains("1.2.2"), "pick still waits on 1.1: {}", ready);
     let show = p.ok(&["show", "1.2.2"]);
-    assert!(show.contains("r1") && show.contains("what fair means"), "{}", show);
-    // 1.3 inherits r3 from the parent level: it waits on everything under 1.2.
+    assert!(show.contains("r2") && show.contains("what fair means"), "{}", show);
+    // 1.3 inherits r4 from the parent level: it waits on everything under 1.2.
     let blocked = p.ok(&["ready", "--blocked"]);
-    assert!(blocked.contains("1.3") && blocked.contains("r3"), "{}", blocked);
+    assert!(blocked.contains("1.3") && blocked.contains("r4"), "{}", blocked);
 }
 
 #[test]
