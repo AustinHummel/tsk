@@ -1,8 +1,10 @@
 # tsk
 
-A task CLI for breaking work down at any depth, built the way Git is built.
+A simple CLI for project planning and tracking. Command language inspired
+by Git.
 
-Every change is an immutable event pointing at a snapshot of the whole plan.
+It breaks work down at any depth, and it is built the way Git is built:
+every change is an immutable event pointing at a snapshot of the whole plan.
 Status, readiness and dependency loops are computed from the history, never
 stored. Breakdown is atomic. Loops are expected and surfaced. The tool
 refuses rather than guesses, and records every `--force`.
@@ -30,8 +32,16 @@ refuses rather than guesses, and records every `--force`.
 
 ## Install
 
+Needs a Rust toolchain (`rustup`). From a clone:
+
 ```
 cargo install --path .
+```
+
+Or straight from GitHub, which also updates an installed copy:
+
+```
+cargo install --git https://github.com/AustinHummel/tsk --force
 ```
 
 ## Commands

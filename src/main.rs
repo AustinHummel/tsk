@@ -8,8 +8,8 @@ mod store;
 
 use clap::{Parser, Subcommand};
 
-/// A task CLI for breaking work down at any depth, built the way Git is
-/// built: every change is an immutable event, every state is derived.
+/// A simple CLI for project planning and tracking. Command language inspired
+/// by Git: every change is an immutable event, every state is derived.
 #[derive(Parser)]
 #[command(name = "tsk", version, about, max_term_width = 100)]
 struct Cli {

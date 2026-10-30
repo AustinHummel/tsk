@@ -2,7 +2,8 @@
 name = "tsk"
 version = "0.1.0"
 edition = "2021"
-description = "A task CLI for breaking work down at any depth, built the way Git is built"
+description = "A simple CLI for project planning and tracking. Command language inspired by Git."
+repository = "https://github.com/AustinHummel/tsk"
 license = "MIT"
 
 [dependencies]
