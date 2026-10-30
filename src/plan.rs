@@ -145,20 +145,46 @@ impl Plan {
         self.numbering().get(id).cloned().unwrap_or_else(|| "?".to_string())
     }
 
-    /// Accept a task id (`t7`) or an outline number (`1.2.4`).
+    /// Accept a task id (`t7`), an outline number (`1.2.4`), or an exact
+    /// title when it names one task.
     pub fn resolve(&self, r: &str) -> Result<TaskId> {
         let r = r.trim();
+        if r.is_empty() {
+            bail!("empty task reference");
+        }
         if self.tasks.contains_key(r) {
             return Ok(r.to_string());
         }
-        if r.chars().all(|c| c.is_ascii_digit() || c == '.') && !r.is_empty() {
+        if r.chars().all(|c| c.is_ascii_digit() || c == '.') {
             let numbering = self.numbering();
             if let Some((id, _)) = numbering.iter().find(|(_, n)| n.as_str() == r) {
                 return Ok(id.clone());
             }
             bail!("no task at outline position {}", r);
         }
-        bail!("no task {}", r)
+        let lower = r.to_lowercase();
+        let mut exact: Vec<&Task> = self.tasks.values().filter(|t| t.title.to_lowercase() == lower).collect();
+        exact.sort_by_key(|t| t.seq);
+        match exact.len() {
+            1 => return Ok(exact[0].id.clone()),
+            0 => {}
+            _ => bail!(
+                "`{}` names {} tasks; use an id or number:\n{}",
+                r,
+                exact.len(),
+                exact.iter().map(|t| format!("  {}", self.label(&t.id))).collect::<Vec<_>>().join("\n")
+            ),
+        }
+        let mut near: Vec<&Task> = self.tasks.values().filter(|t| t.title.to_lowercase().contains(&lower)).collect();
+        near.sort_by_key(|t| t.seq);
+        if near.is_empty() {
+            bail!("no task `{}`; tasks are named by id (t7), number (1.2.4), or exact title", r);
+        }
+        bail!(
+            "no task `{}`; did you mean:\n{}",
+            r,
+            near.iter().take(8).map(|t| format!("  {}", self.label(&t.id))).collect::<Vec<_>>().join("\n")
+        )
     }
 
     pub fn label(&self, id: &str) -> String {

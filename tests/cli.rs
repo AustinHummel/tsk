@@ -172,3 +172,17 @@ fn history_is_immutable_and_diffable() {
     assert!(p.ok(&["cat-object", &head]).starts_with("event"));
     assert!(p.fails(&["uncomplete", "1"]).contains("not complete"));
 }
+
+#[test]
+fn tasks_resolve_by_id_number_or_title() {
+    let p = Proj::new("resolve");
+    p.ok(&["add", "/?"]);
+    p.ok(&["add", "Build a CLI"]);
+    assert!(p.ok(&["show", "build a cli"]).contains("t2"));
+    assert!(p.ok(&["show", "2"]).contains("Build a CLI"));
+    let msg = p.fails(&["show", "cli"]);
+    assert!(msg.contains("did you mean") && msg.contains("Build a CLI"), "{}", msg);
+    p.ok(&["drop", "/?", "created by accident"]);
+    assert!(p.ok(&["plan"]).contains("(no open tasks)") == false);
+    assert!(p.ok(&["plan", "-a"]).contains("[-] 1 /?"));
+}

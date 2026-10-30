@@ -72,8 +72,10 @@ Process (porcelain):
 Plumbing: `cat-object <hash>`, `hash-object [file]`, `ls-snapshot [event]`,
 `rev-list`. Every view takes `--json`.
 
-Tasks are addressed by id (`t7`) or outline number (`1.2.4`). Both are
-fixed: nothing is ever renumbered.
+Tasks are addressed by id (`t7`), outline number (`1.2.4`), or exact
+title when it names one task. Ids and numbers are fixed: nothing is ever
+renumbered. Reasons and bodies with spaces are quoted, as with `git
+commit -m`.
 
 ## The breakdown file
 
