@@ -117,6 +117,7 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
+    /// Pause a task that is in progress.
     Pause { task: String },
     /// Complete one task, or a group that forms a loop.
     Complete {
