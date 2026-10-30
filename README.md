@@ -11,6 +11,9 @@ refuses rather than guesses, and records every `--force`.
 
 ## The process it serves
 
+The mindset behind it is in [PHILOSOPHY.md](PHILOSOPHY.md); the short
+version:
+
 1. **One task for the problem**, in the requester's words, with who asked
    and why: `tsk add "Help Dana pick books" --by "Dana: the same two picks always win"`.
 2. **Break it down one layer at a time, atomically.** Children cover the
