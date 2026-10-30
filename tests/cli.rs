@@ -186,3 +186,26 @@ fn tasks_resolve_by_id_number_or_title() {
     assert!(p.ok(&["plan"]).contains("(no open tasks)") == false);
     assert!(p.ok(&["plan", "-a"]).contains("[-] 1 /?"));
 }
+
+#[test]
+fn agents_get_a_non_interactive_path() {
+    let p = Proj::new("agent");
+    p.ok(&["add", "root", "--by", "Dana: wants it"]);
+    // No terminal in tests: the editor path fails fast instead of hanging.
+    let msg = p.fails(&["breakdown", "1"]);
+    assert!(msg.contains("-F"), "{}", msg);
+    assert!(p.fails(&["edit", "1"]).contains("-F"));
+    // The template names the person's requirement as optional.
+    let t = p.ok(&["breakdown", "1", "--template"]);
+    assert!(t.contains("# = req r1 ->"), "{}", t);
+    // A person's requirement may be omitted, or sent to a child.
+    let f = p.file("bd.md", "= child: a\n= child: b\n= narrative\nab\n= req r1 -> 2\n");
+    let out = p.ok(&["--json", "breakdown", "1", "-F", &f]);
+    assert!(out.contains("\"kind\": \"broken-down\"") && out.contains("\"t3\""), "{}", out);
+    assert!(p.ok(&["show", "1.2"]).contains("Dana"));
+    assert!(!p.ok(&["show", "1"]).contains("Dana"));
+    // A change in --json mode prints only the event.
+    let out = p.ok(&["--json", "complete", "1.1"]);
+    assert!(out.trim_start().starts_with('{') && out.contains("\"completed\""), "{}", out);
+    assert!(!out.contains("now ready"), "{}", out);
+}

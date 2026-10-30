@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "tsk", version, about, max_term_width = 100)]
 struct Cli {
-    /// Machine-readable output where a command supports it.
+    /// Machine-readable output: views print JSON, and a change prints its event.
     #[arg(long, global = true)]
     json: bool,
     #[command(subcommand)]
@@ -224,6 +224,7 @@ enum TypeCmd {
 fn main() {
     let cli = Cli::parse();
     let json = cli.json;
+    commands::set_json(json);
     let r = match cli.cmd {
         Cmd::Init => commands::init(),
         Cmd::Add { title, body, required_by, priority, due } => commands::add(title, body, required_by, priority, due),

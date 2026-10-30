@@ -53,11 +53,20 @@ fn editor_cmd(store: &Store) -> String {
         .unwrap_or_else(|| if cfg!(windows) { "notepad".to_string() } else { "vi".to_string() })
 }
 
-/// Open `initial` in the editor and return what was saved.
+/// Open `initial` in the editor and return what was saved. Refuses when
+/// there is no terminal to hand the editor to, so a script or an agent
+/// fails fast instead of hanging on a window it cannot see.
 fn edit_in_editor(store: &Store, name: &str, initial: &str) -> Result<String> {
+    use std::io::IsTerminal;
+    let cmd = editor_cmd(store);
+    if !std::io::stdin().is_terminal() || cmd == "none" {
+        bail!(
+            "no terminal for an editor; pass the content with `-F <file>` or `-F -` (stdin)\n\
+             (`tsk breakdown <task> --template` prints the form to fill in)"
+        );
+    }
     let path = store.dir.join(format!("{}.EDIT", name));
     std::fs::write(&path, initial)?;
-    let cmd = editor_cmd(store);
     let mut parts = cmd.split_whitespace();
     let exe = parts.next().unwrap_or("notepad");
     let status = std::process::Command::new(exe)
@@ -91,8 +100,38 @@ fn req_desc(plan: &Plan, r: &Requirement) -> String {
     format!("{} on [{}] from [{}]: {}", kind, plan.label(&r.on), plan.requirer_label(&r.from), r.reason)
 }
 
+static JSON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_json(on: bool) {
+    JSON.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn json_mode() -> bool {
+    JSON.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Human text, suppressed in `--json` mode.
+fn say(s: &str) {
+    if !json_mode() {
+        println!("{}", s);
+    }
+}
+
+/// The result of a mutating command: one line with the event hash, or in
+/// `--json` mode the event itself (kind, subjects, group, forced, message).
 fn done(hash: &Hash, msg: &str) {
-    println!("{}  ({})", msg, &hash[..10]);
+    if !json_mode() {
+        println!("{}  ({})", msg, &hash[..10]);
+        return;
+    }
+    let ev = Store::discover(&std::env::current_dir().unwrap_or_default())
+        .and_then(|s| s.read_object::<Event>(ObjectType::Event, hash))
+        .ok();
+    let v = match ev {
+        Some(e) => json!({"event": hash, "kind": e.kind.name(), "message": e.message, "subjects": e.subjects, "group": e.group, "forced": e.forced, "time": e.time}),
+        None => json!({"event": hash, "message": msg}),
+    };
+    println!("{}", serde_json::to_string_pretty(&v).unwrap());
 }
 
 // ===== porcelain ===========================================================
@@ -142,17 +181,21 @@ pub fn breakdown(task: String, file: Option<String>, template: bool) -> Result<(
     check_leaf_open(&c, &id, "break down")?;
     let parent = c.plan.task(&id)?.clone();
 
-    // Every requirement touching the parent must be dispositioned.
+    // Every requirement between tasks that touches the parent must be
+    // dispositioned. A person's requirement may be, and stays if it isn't.
     let mut to_place: Vec<(String, String)> = Vec::new();
+    let mut optional: Vec<(String, String)> = Vec::new();
     for r in c.plan.reqs_on(&id) {
         if matches!(r.from, Requirer::Task(_)) {
             to_place.push((r.id.clone(), req_desc(&c.plan, r)));
+        } else {
+            optional.push((r.id.clone(), req_desc(&c.plan, r)));
         }
     }
     for r in c.plan.reqs_from(&id) {
         to_place.push((r.id.clone(), req_desc(&c.plan, r)));
     }
-    let tmpl = breakdown::template(&c.plan.label(&id), &parent.body, &to_place);
+    let tmpl = breakdown::template(&c.plan.label(&id), &parent.body, &to_place, &optional);
     if template {
         print!("{}", tmpl);
         return Ok(());
@@ -170,7 +213,7 @@ pub fn breakdown(task: String, file: Option<String>, template: bool) -> Result<(
         bail!("every requirement on the parent must go to a child or `all`; missing: {}", missing.join(", "));
     }
     for r in bd.dispositions.keys() {
-        if !to_place.iter().any(|(x, _)| x == r) {
+        if !to_place.iter().any(|(x, _)| x == r) && !optional.iter().any(|(x, _)| x == r) {
             bail!("requirement {} does not touch {}", r, c.plan.label(&id));
         }
     }
@@ -201,7 +244,7 @@ pub fn breakdown(task: String, file: Option<String>, template: bool) -> Result<(
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::BrokenDown, format!("breakdown {} into {} children", c.plan.number_of(&id), n), subjects))?;
     done(&h, &format!("broke down {} into {} children", c.plan.label(&id), n));
     for cid in &child_ids {
-        println!("  {}", c.plan.label(cid));
+        say(&format!("  {}", c.plan.label(cid)));
     }
     Ok(())
 }
@@ -258,7 +301,7 @@ pub fn edit(task: String, file: Option<String>, body: Option<String>, title: Opt
         }
     }
     if changed.is_empty() {
-        println!("nothing changed");
+        say("nothing changed");
         return Ok(());
     }
     c.plan.tasks.insert(id.clone(), t);
@@ -277,7 +320,7 @@ fn note_loops(store: &Store, plan: &Plan, before: usize) -> Result<()> {
     let history = store.history()?;
     let d = Derived::compute(plan, &history);
     if d.loops.len() > before {
-        println!("note: this forms a dependency loop; see `tsk loops`");
+        say("note: this forms a dependency loop; see `tsk loops`");
     }
     Ok(())
 }
@@ -419,9 +462,9 @@ pub fn type_item(ty: String, id: String, title: String, body: Option<String>, pe
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::TypeEdited, format!("type {} item {}: {}", ty, id, title), affected.clone()))?;
     done(&h, &format!("added item {} to type {}", id, ty));
     if !affected.is_empty() {
-        println!("{} task(s) carry this type and now owe this item; review each and `tsk amend` it:", affected.len());
+        say(&format!("{} task(s) carry this type and now owe this item; review each and `tsk amend` it:", affected.len()));
         for a in affected {
-            println!("  {}", c.plan.label(&a));
+            say(&format!("  {}", c.plan.label(&a)));
         }
     }
     Ok(())
@@ -442,9 +485,9 @@ pub fn type_edit_item(ty: String, item: String, title: Option<String>, body: Opt
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::TypeEdited, format!("type {} edit item {}", ty, item), inst.clone()))?;
     done(&h, &format!("edited item {} of type {}", item, ty));
     if !inst.is_empty() {
-        println!("{} instance(s) carry this item's scope; review each, `tsk edit` it, `tsk uncomplete` it if it must reopen:", inst.len());
+        say(&format!("{} instance(s) carry this item's scope; review each, `tsk edit` it, `tsk uncomplete` it if it must reopen:", inst.len()));
         for i in inst {
-            println!("  {} {}", c.derived.status(&i).glyph(), c.plan.label(&i));
+            say(&format!("  {} {}", c.derived.status(&i).glyph(), c.plan.label(&i)));
         }
     }
     Ok(())
@@ -547,7 +590,7 @@ pub fn apply(ty: String, task: String) -> Result<()> {
     let hash = commit::write(&c.store, &c.plan, Commit::new(EventKind::Applied, format!("apply {} to {}", ty, c.plan.number_of(&id)), subjects))?;
     done(&hash, &format!("applied {} to {}: {} children", ty, c.plan.label(&id), n));
     for ch in c.plan.children(&id) {
-        println!("  {}", c.plan.label(&ch.id));
+        say(&format!("  {}", c.plan.label(&ch.id)));
     }
     Ok(())
 }
@@ -670,9 +713,9 @@ fn transition(tasks: Vec<String>, force: bool, kind: EventKind) -> Result<()> {
         let d = Derived::compute(&c.plan, &history);
         let newly: Vec<TaskId> = d.ready(&c.plan).into_iter().filter(|t| !c.derived.is_ready(&c.plan, t)).collect();
         if !newly.is_empty() {
-            println!("now ready:");
+            say("now ready:");
             for t in newly {
-                println!("  {}", c.plan.label(&t));
+                say(&format!("  {}", c.plan.label(&t)));
             }
         }
     }

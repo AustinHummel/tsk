@@ -92,6 +92,25 @@ How the children together fulfill the parent.
 = req r4 -> all
 ```
 
+## For scripts and agents
+
+Nothing needs a terminal. `breakdown` and `edit` take `-F <file>` or `-F -`
+(stdin); `breakdown <task> --template` prints the form to fill in, with
+every requirement that must be dispositioned. When no `-F` is given and
+there is no terminal, the command fails at once with that advice instead
+of opening an editor. `--json` before any command makes views print JSON
+and makes a change print its event (`event`, `kind`, `subjects`, `group`,
+`forced`), nothing else. A refusal exits 1 with one message on stderr
+saying what and why. A typical agent loop:
+
+```
+tsk ready --json                      # what can start
+tsk show 1.2 --json                   # the card, with requirement ids
+tsk breakdown 1.2 --template          # the form
+printf '...' | tsk --json breakdown 1.2 -F -
+tsk loops --json                      # anything to untangle
+```
+
 ## The store
 
 `.tasks/objects/<hash>` holds plain-text objects: `task`, `req`, `type`,

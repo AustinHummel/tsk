@@ -108,7 +108,7 @@ pub fn parse(text: &str) -> Result<BreakdownFile> {
 
 /// The template the editor opens with: the parent's card for reference, then
 /// a child stub and one `= req` line per requirement to disposition.
-pub fn template(parent_label: &str, parent_body: &str, reqs: &[(String, String)]) -> String {
+pub fn template(parent_label: &str, parent_body: &str, reqs: &[(String, String)], optional: &[(String, String)]) -> String {
     let mut s = String::new();
     s.push_str(&format!("# Breakdown of {}\n", parent_label));
     s.push_str("# Lines starting with `#` before the first directive are ignored.\n");
@@ -123,6 +123,9 @@ pub fn template(parent_label: &str, parent_body: &str, reqs: &[(String, String)]
     s.push_str("\n= child: \n\n= child: \n\n= narrative\n\n");
     for (id, desc) in reqs {
         s.push_str(&format!("# {}: {}\n= req {} -> \n", id, desc, id));
+    }
+    for (id, desc) in optional {
+        s.push_str(&format!("# {}: {}\n# (a person's requirement: stays on the parent unless sent to a child)\n# = req {} -> \n", id, desc, id));
     }
     s
 }
