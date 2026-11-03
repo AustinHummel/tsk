@@ -1,0 +1,12 @@
+task
+{
+  "id": "t4",
+  "title": "Ship checksummed binaries",
+  "parent": "t1",
+  "seq": 4,
+  "body": "GitHub releases carry a binary per platform plus SHA256SUMS, for machines without a Rust toolchain.",
+  "types": [],
+  "docs": [
+    "https://github.com/AustinHummel/tsk/releases/tag/v0.2.0"
+  ]
+}
