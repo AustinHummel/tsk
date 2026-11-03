@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "1a95d0b72251c8e248f53bdc8dcbee9b11cfba5db034467c7c191f5a26c347a0",
+  "snapshot": "6966489abae6d584d36bc4b867375d086b015aff482bcb6559aa20d8156e5ed2",
+  "time": "2026-11-03T01:59:53Z",
+  "author": "Claude (side session)",
+  "message": "link 1.6 -> 1.3: the release ships the log file",
+  "subjects": [
+    "t7",
+    "t4"
+  ],
+  "forced": false
+}

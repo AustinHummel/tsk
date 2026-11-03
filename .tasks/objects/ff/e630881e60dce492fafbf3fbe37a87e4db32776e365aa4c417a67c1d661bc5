@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "d13dcd7178aa831dbb866723eb38430c93ebd568712f69bf8aedf54bfb869674",
+  "snapshot": "d5a0c080023234483691297e25e1c9b6b9abd9a462d3ad8e4a1910a965c73dfc",
+  "time": "2026-11-03T02:01:50Z",
+  "author": "Claude (side session)",
+  "message": "link 1.6.2 -> 1.6.3: --git only supplies the from-event to the plan diff",
+  "subjects": [
+    "t17",
+    "t18"
+  ],
+  "forced": false
+}

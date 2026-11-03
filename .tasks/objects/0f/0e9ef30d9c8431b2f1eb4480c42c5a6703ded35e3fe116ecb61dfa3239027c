@@ -1,0 +1,13 @@
+req
+{
+  "id": "r1",
+  "from": {
+    "kind": "person",
+    "id": "Austin"
+  },
+  "on": "t1",
+  "reason": "claude-org will run many subagents against one store, from many directories, on machines without Rust, and needs tasks tied to its markdown vault and git history",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-03T01:59:53Z"
+}

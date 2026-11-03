@@ -1,0 +1,13 @@
+task
+{
+  "id": "t9",
+  "title": "Context command",
+  "parent": "t5",
+  "seq": 9,
+  "body": "`tsk context <task>`: the chain of intent from the root down (who asked and why, each ancestor's narrative, docs and fields), the task's own card, what it requires and is required of, its siblings and children. Text and JSON.",
+  "types": [],
+  "fields": {
+    "agent": "side-session",
+    "run": "org/org-development/process-study"
+  }
+}

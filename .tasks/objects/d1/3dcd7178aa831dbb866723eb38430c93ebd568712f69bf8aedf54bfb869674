@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "6d5bfc86faec02fccede0c0fc3491a494af6bb0f5ae32954c711abeaec710e07",
+  "snapshot": "2165d7ed0596c8bf1b4e66059aab47ebbe2dfad8527ede1284b8c530c1c16be9",
+  "time": "2026-11-03T02:01:43Z",
+  "author": "Claude (side session)",
+  "message": "link 1.4.3 -> 1.4.4: prune computes reachability through the tree objects",
+  "subjects": [
+    "t11",
+    "t12"
+  ],
+  "forced": false
+}

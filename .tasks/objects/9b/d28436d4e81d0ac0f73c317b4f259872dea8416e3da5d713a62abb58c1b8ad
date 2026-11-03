@@ -1,0 +1,9 @@
+task
+{
+  "id": "t14",
+  "title": "Rendered markdown mirror",
+  "parent": "t6",
+  "seq": 14,
+  "body": "`tsk render` writes one markdown page per task (plus an outline index) into a folder Obsidian can browse, with front-matter aliases so `[[t7]]` resolves; idempotent, only changed files rewritten.",
+  "types": []
+}

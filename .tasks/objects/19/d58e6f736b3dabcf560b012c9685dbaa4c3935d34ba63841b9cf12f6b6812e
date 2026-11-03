@@ -1,0 +1,13 @@
+req
+{
+  "id": "r2",
+  "from": {
+    "kind": "task",
+    "id": "t5"
+  },
+  "on": "t8",
+  "reason": "the context pack prints the assignment fields (agent, run)",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T01:59:53Z"
+}

@@ -9,7 +9,11 @@ pub type TaskId = String;
 pub type ReqId = String;
 pub type TypeId = String;
 
-/// A task card. The tool owns the header fields; the human owns `body`.
+/// User-defined `key = value` pairs on a task or a requirement.
+pub type Fields = BTreeMap<String, String>;
+
+/// A task card. The tool owns the header fields; the human owns `body`,
+/// `docs` and `fields`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Task {
     pub id: TaskId,
@@ -35,6 +39,12 @@ pub struct Task {
     pub priority: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub due: Option<String>,
+    /// Paths or URLs of the documents this task serves or produced.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub docs: Vec<String>,
+    /// User-defined fields.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fields: Fields,
 }
 
 /// Who or what requires something of a task.
@@ -64,6 +74,9 @@ pub struct Requirement {
     pub created: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_item: Option<(TypeId, String)>,
+    /// User-defined fields.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fields: Fields,
 }
 
 /// A requirement declared on a type item, resolved when the type is applied.
@@ -99,7 +112,11 @@ pub struct TaskType {
     pub items: Vec<TypeItem>,
 }
 
-/// The whole plan at one moment: every object by id, plus the counters.
+/// The whole plan at one moment, flat: every object by id, plus the
+/// counters. This is the in-memory form; on disk a snapshot is stored as a
+/// tree (`SnapshotHeader` + `Tree` objects) so that a change rewrites one
+/// path of the plan, not all of it. Stores written before 0.2 hold this
+/// flat form directly, and still load.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Snapshot {
     pub tasks: BTreeMap<TaskId, Hash>,
@@ -107,6 +124,37 @@ pub struct Snapshot {
     pub types: BTreeMap<TypeId, Hash>,
     pub next_task: u64,
     pub next_req: u64,
+}
+
+/// The on-disk snapshot since 0.2: the root tree, the types, the counters.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SnapshotHeader {
+    pub version: u32,
+    /// The tree holding the root tasks; absent when the plan is empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree: Option<Hash>,
+    #[serde(default)]
+    pub types: BTreeMap<TypeId, Hash>,
+    pub next_task: u64,
+    pub next_req: u64,
+}
+
+/// One level of the plan: the children of one parent (or the roots), in
+/// creation order, each with its task object, the requirements sitting on
+/// it, and the tree of its own children.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Tree {
+    pub entries: Vec<TreeEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TreeEntry {
+    pub id: TaskId,
+    pub task: Hash,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub reqs: BTreeMap<ReqId, Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub children: Option<Hash>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -130,6 +178,10 @@ pub enum EventKind {
     Completed,
     Uncompleted,
     Dropped,
+    /// Fields or docs changed on a task or requirement.
+    Set,
+    /// Old snapshots were removed; the plan is unchanged.
+    Pruned,
 }
 
 impl EventKind {
@@ -154,6 +206,8 @@ impl EventKind {
             EventKind::Completed => "completed",
             EventKind::Uncompleted => "uncompleted",
             EventKind::Dropped => "dropped",
+            EventKind::Set => "set",
+            EventKind::Pruned => "pruned",
         }
     }
 }
@@ -177,13 +231,14 @@ pub struct Event {
     pub forced: bool,
 }
 
-/// What an event is, for `cat-object`.
+/// What an object is, for `cat-object`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectType {
     Task,
     Req,
     Type,
     Snapshot,
+    Tree,
     Event,
 }
 
@@ -194,6 +249,7 @@ impl ObjectType {
             ObjectType::Req => "req",
             ObjectType::Type => "type",
             ObjectType::Snapshot => "snapshot",
+            ObjectType::Tree => "tree",
             ObjectType::Event => "event",
         }
     }
@@ -203,6 +259,7 @@ impl ObjectType {
             "req" => ObjectType::Req,
             "type" => ObjectType::Type,
             "snapshot" => ObjectType::Snapshot,
+            "tree" => ObjectType::Tree,
             "event" => ObjectType::Event,
             _ => return None,
         })

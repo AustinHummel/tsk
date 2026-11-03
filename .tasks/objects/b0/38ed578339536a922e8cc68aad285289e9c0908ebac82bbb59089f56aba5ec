@@ -1,0 +1,13 @@
+req
+{
+  "id": "r10",
+  "from": {
+    "kind": "task",
+    "id": "t18"
+  },
+  "on": "t17",
+  "reason": "--git only supplies the from-event to the plan diff",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T02:01:50Z"
+}

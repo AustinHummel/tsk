@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Set",
+  "parent": "5ee404cc25191047380c148b9f72734d1a851e9f88f60a3c57475c18cb10c04d",
+  "snapshot": "96c6244b042554ecc96becc0c56456f02e0c2e750343c8964d549a273feb45e4",
+  "time": "2026-11-03T02:12:31Z",
+  "author": "Claude (side session)",
+  "message": "set 1.4.1 agent=side-session run=org/org-development/process-study",
+  "subjects": [
+    "t9"
+  ],
+  "forced": false
+}

@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Set",
+  "parent": "7a9cc0e1f93bf7818917eb47f9fd5f9ae4dcffdfd36978d8acb4a872ab84defa",
+  "snapshot": "0ab9a244780e1e36a334a962098aebdad14fe635d7673ee4a1f397a55a8199d4",
+  "time": "2026-11-03T02:13:38Z",
+  "author": "Claude (side session)",
+  "message": "set 1.4.2 note=backfill-test",
+  "subjects": [
+    "t10"
+  ],
+  "forced": false
+}

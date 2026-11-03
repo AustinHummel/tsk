@@ -1,0 +1,10 @@
+task
+{
+  "id": "t1",
+  "title": "Make tsk fit a hierarchical agent org (0.2)",
+  "parent": null,
+  "seq": 1,
+  "body": "",
+  "types": [],
+  "narrative": "Seven weaknesses Austin named for an agent org, each its own child. Fields (7) come first because scope (4) and the mirror (5) display them; the lock (1) is the commit path the log file (6) rides on; the release (3) packages everything at the end.\n\nAmended 2026-11-03T02:01:54Z: Bugs found while using tsk to plan this release are its own child, so each fix is on record"
+}

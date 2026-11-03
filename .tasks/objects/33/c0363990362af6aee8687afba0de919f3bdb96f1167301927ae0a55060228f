@@ -1,0 +1,12 @@
+snapshot
+{
+  "tasks": {
+    "t1": "740c1cb83a0247b1e7f3e53d3fd89fbcabcf75c1f72c72ccf8a60357de4c8a3c"
+  },
+  "reqs": {
+    "r1": "0f0e9ef30d9c8431b2f1eb4480c42c5a6703ded35e3fe116ecb61dfa3239027c"
+  },
+  "types": {},
+  "next_task": 1,
+  "next_req": 1
+}

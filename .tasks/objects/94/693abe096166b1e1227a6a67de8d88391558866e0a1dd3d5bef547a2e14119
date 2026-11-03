@@ -1,0 +1,9 @@
+task
+{
+  "id": "t19",
+  "title": "Fix bugs dogfooding finds",
+  "parent": "t1",
+  "seq": 19,
+  "body": "Found and fixed while dogfooding: a reason or body beginning with a dash was parsed as a flag (link, amend -b); a store from 0.1 had no log, so the first event written by 0.2 backfills the log from history; multi-line narratives printed one label per line in context; a pruned event's error lost its cause.",
+  "types": []
+}

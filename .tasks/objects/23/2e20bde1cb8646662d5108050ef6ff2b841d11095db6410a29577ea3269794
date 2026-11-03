@@ -1,0 +1,13 @@
+req
+{
+  "id": "r8",
+  "from": {
+    "kind": "task",
+    "id": "t4"
+  },
+  "on": "t3",
+  "reason": "the release ships store addressing",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T01:59:54Z"
+}

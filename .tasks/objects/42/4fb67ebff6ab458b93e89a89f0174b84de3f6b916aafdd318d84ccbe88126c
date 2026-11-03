@@ -1,0 +1,9 @@
+task
+{
+  "id": "t17",
+  "title": "Plan diff between events",
+  "parent": "t7",
+  "seq": 17,
+  "body": "`tsk diff` with no task compares the whole plan between two events: tasks added or changed, status changes, requirements added, moved or removed.",
+  "types": []
+}

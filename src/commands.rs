@@ -1,35 +1,65 @@
-//! Porcelain and plumbing. Each porcelain command loads the plan, changes
-//! it in memory, and writes exactly one event.
+//! Porcelain that changes the plan, and plumbing. Each porcelain command
+//! takes the store lock, loads the plan, changes it in memory, and writes
+//! exactly one event. Views live in `views.rs`.
 
 use crate::breakdown;
 use crate::commit::{self, Commit};
 use crate::model::*;
 use crate::plan::Plan;
 use crate::state::{Block, Derived, Status};
-use crate::store::Store;
+use crate::store::{Lock, Store};
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::json;
 use std::collections::BTreeSet;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
-struct Ctx {
-    store: Store,
-    plan: Plan,
-    history: Vec<(Hash, Event)>,
-    derived: Derived,
+pub(crate) struct Ctx {
+    pub store: Store,
+    pub plan: Plan,
+    pub history: Vec<(Hash, Event)>,
+    pub derived: Derived,
+    /// Held for the life of a writing command.
+    _lock: Option<Lock>,
 }
 
-fn open() -> Result<Ctx> {
-    let store = Store::discover(&std::env::current_dir()?)?;
+static STORE: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+pub fn set_store(p: Option<PathBuf>) {
+    let _ = STORE.set(p);
+}
+
+/// The store named by `--store` / `TSK_STORE`, else the one found by walking up.
+pub(crate) fn store_open() -> Result<Store> {
+    match STORE.get().cloned().flatten() {
+        Some(p) => Store::at(&p),
+        None => Store::discover(&std::env::current_dir()?),
+    }
+}
+
+fn load(store: Store, lock: Option<Lock>) -> Result<Ctx> {
     let snap = store.head_snapshot()?;
     let plan = Plan::load(&store, &snap)?;
     let history = store.history()?;
     let derived = Derived::compute(&plan, &history);
-    Ok(Ctx { store, plan, history, derived })
+    Ok(Ctx { store, plan, history, derived, _lock: lock })
 }
 
-fn read_text(arg: Option<String>, from_file: bool) -> Result<Option<String>> {
+/// Read-only: no lock. Readers see HEAD and its snapshot, both immutable.
+pub(crate) fn open() -> Result<Ctx> {
+    load(store_open()?, None)
+}
+
+/// For a change: take the lock first, then load, so the plan in memory is
+/// the one the event will follow.
+pub(crate) fn open_rw() -> Result<Ctx> {
+    let store = store_open()?;
+    let lock = store.lock()?;
+    load(store, Some(lock))
+}
+
+pub(crate) fn read_text(arg: Option<String>, from_file: bool) -> Result<Option<String>> {
     match arg {
         None => Ok(None),
         Some(s) if s == "-" => {
@@ -44,9 +74,7 @@ fn read_text(arg: Option<String>, from_file: bool) -> Result<Option<String>> {
 
 fn editor_cmd(store: &Store) -> String {
     store
-        .read_config()
-        .ok()
-        .and_then(|c| c.get("editor").cloned())
+        .config_value("editor")
         .or_else(|| std::env::var("TSK_EDITOR").ok())
         .or_else(|| std::env::var("VISUAL").ok())
         .or_else(|| std::env::var("EDITOR").ok())
@@ -55,7 +83,8 @@ fn editor_cmd(store: &Store) -> String {
 
 /// Open `initial` in the editor and return what was saved. Refuses when
 /// there is no terminal to hand the editor to, so a script or an agent
-/// fails fast instead of hanging on a window it cannot see.
+/// fails fast instead of hanging on a window it cannot see. Runs without
+/// the store lock: the edit can take as long as it takes.
 fn edit_in_editor(store: &Store, name: &str, initial: &str) -> Result<String> {
     use std::io::IsTerminal;
     let cmd = editor_cmd(store);
@@ -65,7 +94,7 @@ fn edit_in_editor(store: &Store, name: &str, initial: &str) -> Result<String> {
              (`tsk breakdown <task> --template` prints the form to fill in)"
         );
     }
-    let path = store.dir.join(format!("{}.EDIT", name));
+    let path = store.dir.join(format!("{}-{}.EDIT", name, std::process::id()));
     std::fs::write(&path, initial)?;
     let mut parts = cmd.split_whitespace();
     let exe = parts.next().unwrap_or("notepad");
@@ -89,7 +118,7 @@ fn parse_by(s: &str) -> Result<(String, String)> {
     Ok((p.trim().to_string(), r.trim().to_string()))
 }
 
-fn req_desc(plan: &Plan, r: &Requirement) -> String {
+pub(crate) fn req_desc(plan: &Plan, r: &Requirement) -> String {
     let kind = if r.conditional {
         "conditional"
     } else if r.blocking {
@@ -106,12 +135,12 @@ pub fn set_json(on: bool) {
     JSON.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
-fn json_mode() -> bool {
+pub(crate) fn json_mode() -> bool {
     JSON.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Human text, suppressed in `--json` mode.
-fn say(s: &str) {
+pub(crate) fn say(s: &str) {
     if !json_mode() {
         println!("{}", s);
     }
@@ -119,19 +148,40 @@ fn say(s: &str) {
 
 /// The result of a mutating command: one line with the event hash, or in
 /// `--json` mode the event itself (kind, subjects, group, forced, message).
-fn done(hash: &Hash, msg: &str) {
+pub(crate) fn done(store: &Store, hash: &Hash, msg: &str) {
     if !json_mode() {
         println!("{}  ({})", msg, &hash[..10]);
         return;
     }
-    let ev = Store::discover(&std::env::current_dir().unwrap_or_default())
-        .and_then(|s| s.read_object::<Event>(ObjectType::Event, hash))
-        .ok();
-    let v = match ev {
-        Some(e) => json!({"event": hash, "kind": e.kind.name(), "message": e.message, "subjects": e.subjects, "group": e.group, "forced": e.forced, "time": e.time}),
-        None => json!({"event": hash, "message": msg}),
+    let v = match store.read_object::<Event>(ObjectType::Event, hash) {
+        Ok(e) => json!({"event": hash, "kind": e.kind.name(), "message": e.message, "subjects": e.subjects, "group": e.group, "forced": e.forced, "time": e.time, "author": e.author}),
+        Err(_) => json!({"event": hash, "message": msg}),
     };
     println!("{}", serde_json::to_string_pretty(&v).unwrap());
+}
+
+fn new_task(plan: &mut Plan, title: &str, parent: Option<TaskId>, body: String) -> TaskId {
+    let id = plan.new_task_id();
+    let seq = plan.next_task;
+    plan.tasks.insert(
+        id.clone(),
+        Task {
+            id: id.clone(),
+            title: title.to_string(),
+            parent,
+            seq,
+            body,
+            types: vec![],
+            from_item: None,
+            core_of: None,
+            narrative: None,
+            priority: None,
+            due: None,
+            docs: vec![],
+            fields: Fields::new(),
+        },
+    );
+    id
 }
 
 // ===== porcelain ===========================================================
@@ -141,26 +191,25 @@ pub fn init() -> Result<()> {
     let store = Store::init(&cwd)?;
     let plan = Plan::default();
     let h = commit::write(&store, &plan, Commit::new(EventKind::Init, "init", vec![]))?;
-    done(&h, &format!("initialized {}", store.dir.display()));
+    done(&store, &h, &format!("initialized {}", store.dir.display()));
     Ok(())
 }
 
 pub fn add(title: String, body: Option<String>, by: Vec<String>, priority: Option<String>, due: Option<String>) -> Result<()> {
-    let mut c = open()?;
-    let id = c.plan.new_task_id();
-    let seq = c.plan.next_task;
     let body = read_text(body, false)?.unwrap_or_default();
-    c.plan.tasks.insert(
-        id.clone(),
-        Task { id: id.clone(), title: title.clone(), parent: None, seq, body, types: vec![], from_item: None, core_of: None, narrative: None, priority, due },
-    );
+    let mut c = open_rw()?;
+    let id = new_task(&mut c.plan, &title, None, body);
+    {
+        let t = c.plan.tasks.get_mut(&id).unwrap();
+        t.priority = priority;
+        t.due = due;
+    }
     for b in by {
         let (p, r) = parse_by(&b)?;
-        let rid = c.plan.new_req_id();
-        c.plan.reqs.insert(rid.clone(), Requirement { id: rid, from: Requirer::Person(p), on: id.clone(), reason: r, blocking: false, conditional: false, created: commit::now(), from_item: None });
+        add_req(&mut c, Requirer::Person(p), id.clone(), r, false, false, None);
     }
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Created, format!("add {}", title), vec![id.clone()]))?;
-    done(&h, &format!("created {}", c.plan.label(&id)));
+    done(&c.store, &h, &format!("created {}", c.plan.label(&id)));
     Ok(())
 }
 
@@ -175,12 +224,11 @@ fn check_leaf_open(c: &Ctx, id: &str, verb: &str) -> Result<()> {
     }
 }
 
-pub fn breakdown(task: String, file: Option<String>, template: bool) -> Result<()> {
-    let mut c = open()?;
-    let id = c.plan.resolve(&task)?;
-    check_leaf_open(&c, &id, "break down")?;
-    let parent = c.plan.task(&id)?.clone();
-
+/// What a breakdown of `task` must disposition, and the template for it.
+fn breakdown_prep(c: &Ctx, task: &str) -> Result<(TaskId, Vec<(String, String)>, Vec<(String, String)>, String)> {
+    let id = c.plan.resolve(task)?;
+    check_leaf_open(c, &id, "break down")?;
+    let parent = c.plan.task(&id)?;
     // Every requirement between tasks that touches the parent must be
     // dispositioned. A person's requirement may be, and stays if it isn't.
     let mut to_place: Vec<(String, String)> = Vec::new();
@@ -196,14 +244,29 @@ pub fn breakdown(task: String, file: Option<String>, template: bool) -> Result<(
         to_place.push((r.id.clone(), req_desc(&c.plan, r)));
     }
     let tmpl = breakdown::template(&c.plan.label(&id), &parent.body, &to_place, &optional);
-    if template {
-        print!("{}", tmpl);
-        return Ok(());
-    }
-    let text = match read_text(file, true)? {
-        Some(t) => t,
-        None => edit_in_editor(&c.store, "BREAKDOWN", &tmpl)?,
+    Ok((id, to_place, optional, tmpl))
+}
+
+pub fn breakdown(task: String, file: Option<String>, template: bool) -> Result<()> {
+    // Everything that may take a while (reading stdin, the editor) happens
+    // before the lock is taken.
+    let given = read_text(file, true)?;
+    let text = match (given, template) {
+        (_, true) => {
+            let c = open()?;
+            let (_, _, _, tmpl) = breakdown_prep(&c, &task)?;
+            print!("{}", tmpl);
+            return Ok(());
+        }
+        (Some(t), false) => t,
+        (None, false) => {
+            let c = open()?;
+            let (_, _, _, tmpl) = breakdown_prep(&c, &task)?;
+            edit_in_editor(&c.store, "BREAKDOWN", &tmpl)?
+        }
     };
+    let mut c = open_rw()?;
+    let (id, to_place, optional, _) = breakdown_prep(&c, &task)?;
     let bd = breakdown::parse(&text)?;
     if bd.narrative.is_empty() {
         bail!("the breakdown needs a `= narrative`: how the children together fulfill {}", c.plan.label(&id));
@@ -221,9 +284,7 @@ pub fn breakdown(task: String, file: Option<String>, template: bool) -> Result<(
     let mut subjects = vec![id.clone()];
     let mut child_ids = Vec::new();
     for (title, body) in &bd.children {
-        let cid = c.plan.new_task_id();
-        let seq = c.plan.next_task;
-        c.plan.tasks.insert(cid.clone(), Task { id: cid.clone(), title: title.clone(), parent: Some(id.clone()), seq, body: body.clone(), types: vec![], from_item: None, core_of: None, narrative: None, priority: None, due: None });
+        let cid = new_task(&mut c.plan, title, Some(id.clone()), body.clone());
         subjects.push(cid.clone());
         child_ids.push(cid);
     }
@@ -242,7 +303,7 @@ pub fn breakdown(task: String, file: Option<String>, template: bool) -> Result<(
     c.plan.tasks.get_mut(&id).unwrap().narrative = Some(bd.narrative.clone());
     let n = child_ids.len();
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::BrokenDown, format!("breakdown {} into {} children", c.plan.number_of(&id), n), subjects))?;
-    done(&h, &format!("broke down {} into {} children", c.plan.label(&id), n));
+    done(&c.store, &h, &format!("broke down {} into {} children", c.plan.label(&id), n));
     for cid in &child_ids {
         say(&format!("  {}", c.plan.label(cid)));
     }
@@ -250,16 +311,14 @@ pub fn breakdown(task: String, file: Option<String>, template: bool) -> Result<(
 }
 
 pub fn amend(parent: String, title: String, body: Option<String>, narrative: Option<String>) -> Result<()> {
-    let mut c = open()?;
+    let narrative = narrative.ok_or_else(|| anyhow!("`--narrative` is required: say what scope the new child covers and why the parent gained it"))?;
+    let body = read_text(body, false)?.unwrap_or_default();
+    let mut c = open_rw()?;
     let pid = c.plan.resolve(&parent)?;
     if !c.plan.is_parent(&pid) {
         bail!("{} is not broken down; use `tsk breakdown`", c.plan.label(&pid));
     }
-    let narrative = narrative.ok_or_else(|| anyhow!("`--narrative` is required: say what scope the new child covers and why the parent gained it"))?;
-    let body = read_text(body, false)?.unwrap_or_default();
-    let cid = c.plan.new_task_id();
-    let seq = c.plan.next_task;
-    c.plan.tasks.insert(cid.clone(), Task { id: cid.clone(), title: title.clone(), parent: Some(pid.clone()), seq, body, types: vec![], from_item: None, core_of: None, narrative: None, priority: None, due: None });
+    let cid = new_task(&mut c.plan, &title, Some(pid.clone()), body);
     let p = c.plan.tasks.get_mut(&pid).unwrap();
     let mut n = p.narrative.clone().unwrap_or_default();
     if !n.is_empty() {
@@ -268,12 +327,22 @@ pub fn amend(parent: String, title: String, body: Option<String>, narrative: Opt
     n.push_str(&format!("Amended {}: {}", commit::now(), narrative));
     p.narrative = Some(n);
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Amended, format!("amend {} with {}", c.plan.number_of(&pid), title), vec![pid.clone(), cid.clone()]))?;
-    done(&h, &format!("added {} under {}", c.plan.label(&cid), c.plan.label(&pid)));
+    done(&c.store, &h, &format!("added {} under {}", c.plan.label(&cid), c.plan.label(&pid)));
     Ok(())
 }
 
 pub fn edit(task: String, file: Option<String>, body: Option<String>, title: Option<String>, narrative: Option<String>) -> Result<()> {
-    let mut c = open()?;
+    let mut new_body = match (file, body) {
+        (Some(f), _) => read_text(Some(f), true)?,
+        (None, Some(b)) => read_text(Some(b), false)?,
+        (None, None) => None,
+    };
+    if new_body.is_none() && title.is_none() && narrative.is_none() {
+        let c = open()?;
+        let id = c.plan.resolve(&task)?;
+        new_body = Some(edit_in_editor(&c.store, "CARD", &c.plan.task(&id)?.body)?);
+    }
+    let mut c = open_rw()?;
     let id = c.plan.resolve(&task)?;
     let mut t = c.plan.task(&id)?.clone();
     let mut changed = Vec::new();
@@ -288,12 +357,6 @@ pub fn edit(task: String, file: Option<String>, body: Option<String>, title: Opt
         t.title = ti;
         changed.push("title");
     }
-    let new_body = match (file, body) {
-        (Some(f), _) => read_text(Some(f), true)?,
-        (None, Some(b)) => read_text(Some(b), false)?,
-        (None, None) if changed.is_empty() => Some(edit_in_editor(&c.store, "CARD", &t.body)?),
-        _ => None,
-    };
     if let Some(b) = new_body {
         if b.trim_end() != t.body.trim_end() {
             t.body = b.trim_end().to_string();
@@ -306,19 +369,19 @@ pub fn edit(task: String, file: Option<String>, body: Option<String>, title: Opt
     }
     c.plan.tasks.insert(id.clone(), t);
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Edited, format!("edit {} ({})", c.plan.number_of(&id), changed.join(", ")), vec![id.clone()]))?;
-    done(&h, &format!("edited {}: {}", c.plan.label(&id), changed.join(", ")));
+    done(&c.store, &h, &format!("edited {}: {}", c.plan.label(&id), changed.join(", ")));
     Ok(())
 }
 
 fn add_req(c: &mut Ctx, from: Requirer, on: TaskId, reason: String, blocking: bool, conditional: bool, from_item: Option<(TypeId, String)>) -> ReqId {
     let rid = c.plan.new_req_id();
-    c.plan.reqs.insert(rid.clone(), Requirement { id: rid.clone(), from, on, reason, blocking, conditional, created: commit::now(), from_item });
+    c.plan.reqs.insert(rid.clone(), Requirement { id: rid.clone(), from, on, reason, blocking, conditional, created: commit::now(), from_item, fields: Fields::new() });
     rid
 }
 
-fn note_loops(store: &Store, plan: &Plan, before: usize) -> Result<()> {
-    let history = store.history()?;
-    let d = Derived::compute(plan, &history);
+fn note_loops(c: &Ctx, before: usize) -> Result<()> {
+    let history = c.store.history()?;
+    let d = Derived::compute(&c.plan, &history);
     if d.loops.len() > before {
         say("note: this forms a dependency loop; see `tsk loops`");
     }
@@ -326,7 +389,7 @@ fn note_loops(store: &Store, plan: &Plan, before: usize) -> Result<()> {
 }
 
 pub fn link(pred: String, succ: String, reason: String, conditional: bool) -> Result<()> {
-    let mut c = open()?;
+    let mut c = open_rw()?;
     let p = c.plan.resolve(&pred)?;
     let s = c.plan.resolve(&succ)?;
     if p == s {
@@ -336,34 +399,37 @@ pub fn link(pred: String, succ: String, reason: String, conditional: bool) -> Re
     let rid = add_req(&mut c, Requirer::Task(s.clone()), p.clone(), reason.clone(), true, conditional, None);
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Linked, format!("link {} -> {}: {}", c.plan.number_of(&p), c.plan.number_of(&s), reason), vec![p.clone(), s.clone()]))?;
     if conditional {
-        done(&h, &format!("{}: {} is tentative until {} is complete", rid, c.plan.label(&s), c.plan.label(&p)));
+        done(&c.store, &h, &format!("{}: {} is tentative until {} is complete", rid, c.plan.label(&s), c.plan.label(&p)));
     } else {
-        done(&h, &format!("{}: {} is predecessor of {}", rid, c.plan.label(&p), c.plan.label(&s)));
+        done(&c.store, &h, &format!("{}: {} is predecessor of {}", rid, c.plan.label(&p), c.plan.label(&s)));
     }
-    note_loops(&c.store, &c.plan, before)
+    note_loops(&c, before)
 }
 
 pub fn require(from: String, on: String, reason: String) -> Result<()> {
-    let mut c = open()?;
+    let mut c = open_rw()?;
     let f = c.plan.resolve(&from)?;
     let o = c.plan.resolve(&on)?;
+    if f == o {
+        bail!("a task cannot require something of itself");
+    }
     let rid = add_req(&mut c, Requirer::Task(f.clone()), o.clone(), reason.clone(), false, false, None);
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Required, format!("require {} of {}: {}", c.plan.number_of(&f), c.plan.number_of(&o), reason), vec![f.clone(), o.clone()]))?;
-    done(&h, &format!("{}: {} requires of {}: {}", rid, c.plan.label(&f), c.plan.label(&o), reason));
+    done(&c.store, &h, &format!("{}: {} requires of {}: {}", rid, c.plan.label(&f), c.plan.label(&o), reason));
     Ok(())
 }
 
 pub fn by(task: String, person: String, reason: String) -> Result<()> {
-    let mut c = open()?;
+    let mut c = open_rw()?;
     let id = c.plan.resolve(&task)?;
     let rid = add_req(&mut c, Requirer::Person(person.clone()), id.clone(), reason.clone(), false, false, None);
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Required, format!("{} requires {}: {}", person, c.plan.number_of(&id), reason), vec![id.clone()]))?;
-    done(&h, &format!("{}: {} required by {}", rid, c.plan.label(&id), person));
+    done(&c.store, &h, &format!("{}: {} required by {}", rid, c.plan.label(&id), person));
     Ok(())
 }
 
 pub fn move_req(req: String, from: Option<String>, on: Option<String>) -> Result<()> {
-    let mut c = open()?;
+    let mut c = open_rw()?;
     let mut r = c.plan.reqs.get(&req).cloned().ok_or_else(|| anyhow!("no requirement {}", req))?;
     if from.is_none() && on.is_none() {
         bail!("say where it moves: `--from <task>` and/or `--on <task>`");
@@ -390,33 +456,131 @@ pub fn move_req(req: String, from: Option<String>, on: Option<String>) -> Result
     let before = c.derived.loops.len();
     c.plan.reqs.insert(req.clone(), r.clone());
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Moved, format!("move {}", req), subjects))?;
-    done(&h, &format!("moved {}: {}", req, req_desc(&c.plan, &r)));
-    note_loops(&c.store, &c.plan, before)
+    done(&c.store, &h, &format!("moved {}: {}", req, req_desc(&c.plan, &r)));
+    note_loops(&c, before)
 }
 
 pub fn unlink(req: String) -> Result<()> {
-    let mut c = open()?;
+    let mut c = open_rw()?;
     let r = c.plan.reqs.remove(&req).ok_or_else(|| anyhow!("no requirement {}", req))?;
     let mut subjects = vec![r.on.clone()];
     if let Requirer::Task(t) = &r.from {
         subjects.push(t.clone());
     }
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Unlinked, format!("unlink {}: {}", req, r.reason), subjects))?;
-    done(&h, &format!("removed {}", req));
+    done(&c.store, &h, &format!("removed {}", req));
+    Ok(())
+}
+
+// ----- fields and docs ------------------------------------------------------
+
+fn parse_pair(s: &str) -> Result<(String, String)> {
+    let (k, v) = s.split_once('=').ok_or_else(|| anyhow!("`{}` is not `key=value`", s))?;
+    let k = k.trim();
+    if k.is_empty() || !k.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')) {
+        bail!("field key `{}` must be letters, digits, `_`, `-` or `.`", k);
+    }
+    Ok((k.to_string(), v.trim().to_string()))
+}
+
+/// Apply `key=value` sets and `--unset` keys to a field map; returns what changed.
+fn apply_fields(fields: &mut Fields, pairs: &[String], unset: &[String]) -> Result<Vec<String>> {
+    let mut changed = Vec::new();
+    for p in pairs {
+        let (k, v) = parse_pair(p)?;
+        if fields.get(&k) != Some(&v) {
+            fields.insert(k.clone(), v.clone());
+            changed.push(format!("{}={}", k, v));
+        }
+    }
+    for k in unset {
+        if fields.remove(k).is_some() {
+            changed.push(format!("-{}", k));
+        }
+    }
+    Ok(changed)
+}
+
+pub fn set(target: String, pairs: Vec<String>, unset: Vec<String>, req: bool) -> Result<()> {
+    if pairs.is_empty() && unset.is_empty() {
+        bail!("give `key=value` pairs and/or `--unset key`");
+    }
+    let mut c = open_rw()?;
+    let (subjects, label, changed) = if req {
+        let r = c.plan.reqs.get_mut(&target).ok_or_else(|| anyhow!("no requirement {}", target))?;
+        let changed = apply_fields(&mut r.fields, &pairs, &unset)?;
+        let mut subjects = vec![r.on.clone()];
+        if let Requirer::Task(t) = &r.from {
+            subjects.push(t.clone());
+        }
+        (subjects, target.clone(), changed)
+    } else {
+        let id = c.plan.resolve(&target)?;
+        let t = c.plan.tasks.get_mut(&id).unwrap();
+        let changed = apply_fields(&mut t.fields, &pairs, &unset)?;
+        (vec![id.clone()], c.plan.number_of(&id), changed)
+    };
+    if changed.is_empty() {
+        say("nothing changed");
+        return Ok(());
+    }
+    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Set, format!("set {} {}", label, changed.join(" ")), subjects))?;
+    done(&c.store, &h, &format!("set {}: {}", label, changed.join(" ")));
+    Ok(())
+}
+
+pub fn doc(task: String, path: Option<String>, rm: Option<String>) -> Result<()> {
+    if path.is_none() && rm.is_none() {
+        let c = open()?;
+        let id = c.plan.resolve(&task)?;
+        let t = c.plan.task(&id)?;
+        if json_mode() {
+            println!("{}", serde_json::to_string_pretty(&t.docs)?);
+        } else if t.docs.is_empty() {
+            println!("{} has no docs", c.plan.label(&id));
+        } else {
+            for d in &t.docs {
+                println!("{}", d);
+            }
+        }
+        return Ok(());
+    }
+    let mut c = open_rw()?;
+    let id = c.plan.resolve(&task)?;
+    let t = c.plan.tasks.get_mut(&id).unwrap();
+    let msg = if let Some(p) = path {
+        let p = p.replace('\\', "/");
+        if t.docs.contains(&p) {
+            say("already linked");
+            return Ok(());
+        }
+        t.docs.push(p.clone());
+        format!("doc {} +{}", c.plan.number_of(&id), p)
+    } else {
+        let p = rm.unwrap().replace('\\', "/");
+        let before = t.docs.len();
+        t.docs.retain(|d| *d != p);
+        if t.docs.len() == before {
+            bail!("{} is not linked to {}", c.plan.label(&id), p);
+        }
+        format!("doc {} -{}", c.plan.number_of(&id), p)
+    };
+    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Set, msg.clone(), vec![id.clone()]))?;
+    done(&c.store, &h, &msg);
     Ok(())
 }
 
 // ----- types ---------------------------------------------------------------
 
 pub fn type_add(id: String, title: String, body: Option<String>) -> Result<()> {
-    let mut c = open()?;
+    let body = read_text(body, false)?.unwrap_or_default();
+    let mut c = open_rw()?;
     if c.plan.types.contains_key(&id) {
         bail!("type {} exists", id);
     }
-    let body = read_text(body, false)?.unwrap_or_default();
     c.plan.types.insert(id.clone(), TaskType { id: id.clone(), title: title.clone(), body, items: vec![] });
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::TypeAdded, format!("type {}: {}", id, title), vec![]))?;
-    done(&h, &format!("added type {} ({})", id, title));
+    done(&c.store, &h, &format!("added type {} ({})", id, title));
     Ok(())
 }
 
@@ -429,7 +593,7 @@ fn parse_item_req(s: &str) -> Result<ItemReq> {
     Ok(ItemReq { on: on.trim().to_string(), reason: reason.trim().to_string(), blocking })
 }
 
-fn instances_of(plan: &Plan, ty: &str, item: &str) -> Vec<TaskId> {
+pub(crate) fn instances_of(plan: &Plan, ty: &str, item: &str) -> Vec<TaskId> {
     let mut v: Vec<TaskId> = plan
         .tasks
         .values()
@@ -440,16 +604,16 @@ fn instances_of(plan: &Plan, ty: &str, item: &str) -> Vec<TaskId> {
     v
 }
 
-fn carriers(plan: &Plan, ty: &str) -> Vec<TaskId> {
+pub(crate) fn carriers(plan: &Plan, ty: &str) -> Vec<TaskId> {
     let mut v: Vec<TaskId> = plan.tasks.values().filter(|t| t.types.iter().any(|x| x == ty)).map(|t| t.id.clone()).collect();
     v.sort_by_key(|t| plan.tasks[t].seq);
     v
 }
 
 pub fn type_item(ty: String, id: String, title: String, body: Option<String>, pending: Option<String>, reqs: Vec<String>) -> Result<()> {
-    let mut c = open()?;
     let body = read_text(body, false)?.unwrap_or_default();
     let reqs: Vec<ItemReq> = reqs.iter().map(|s| parse_item_req(s)).collect::<Result<_>>()?;
+    let mut c = open_rw()?;
     if let Some(p) = &pending {
         c.plan.resolve(p)?;
     }
@@ -460,7 +624,7 @@ pub fn type_item(ty: String, id: String, title: String, body: Option<String>, pe
     t.items.push(TypeItem { id: id.clone(), title: title.clone(), body, pending, reqs });
     let affected = carriers(&c.plan, &ty);
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::TypeEdited, format!("type {} item {}: {}", ty, id, title), affected.clone()))?;
-    done(&h, &format!("added item {} to type {}", id, ty));
+    done(&c.store, &h, &format!("added item {} to type {}", id, ty));
     if !affected.is_empty() {
         say(&format!("{} task(s) carry this type and now owe this item; review each and `tsk amend` it:", affected.len()));
         for a in affected {
@@ -471,8 +635,8 @@ pub fn type_item(ty: String, id: String, title: String, body: Option<String>, pe
 }
 
 pub fn type_edit_item(ty: String, item: String, title: Option<String>, body: Option<String>) -> Result<()> {
-    let mut c = open()?;
     let body = read_text(body, false)?;
+    let mut c = open_rw()?;
     let t = c.plan.types.get_mut(&ty).ok_or_else(|| anyhow!("no type {}", ty))?;
     let it = t.items.iter_mut().find(|i| i.id == item).ok_or_else(|| anyhow!("type {} has no item {}", ty, item))?;
     if let Some(ti) = title {
@@ -483,7 +647,7 @@ pub fn type_edit_item(ty: String, item: String, title: Option<String>, body: Opt
     }
     let inst = instances_of(&c.plan, &ty, &item);
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::TypeEdited, format!("type {} edit item {}", ty, item), inst.clone()))?;
-    done(&h, &format!("edited item {} of type {}", item, ty));
+    done(&c.store, &h, &format!("edited item {} of type {}", item, ty));
     if !inst.is_empty() {
         say(&format!("{} instance(s) carry this item's scope; review each, `tsk edit` it, `tsk uncomplete` it if it must reopen:", inst.len()));
         for i in inst {
@@ -533,7 +697,7 @@ pub fn type_list(json: bool) -> Result<()> {
 }
 
 pub fn apply(ty: String, task: String) -> Result<()> {
-    let mut c = open()?;
+    let mut c = open_rw()?;
     let id = c.plan.resolve(&task)?;
     check_leaf_open(&c, &id, "apply to")?;
     let t = c.plan.types.get(&ty).cloned().ok_or_else(|| anyhow!("no type {}", ty))?;
@@ -546,16 +710,14 @@ pub fn apply(ty: String, task: String) -> Result<()> {
     }
     let mut subjects = vec![id.clone()];
     // core child: the task's own scope
-    let core = c.plan.new_task_id();
-    let seq = c.plan.next_task;
-    c.plan.tasks.insert(core.clone(), Task { id: core.clone(), title: format!("{} (core)", host.title), parent: Some(id.clone()), seq, body: host.body.clone(), types: vec![], from_item: None, core_of: Some(id.clone()), narrative: None, priority: None, due: None });
+    let core = new_task(&mut c.plan, &format!("{} (core)", host.title), Some(id.clone()), host.body.clone());
+    c.plan.tasks.get_mut(&core).unwrap().core_of = Some(id.clone());
     subjects.push(core.clone());
     // one child per item
     let mut item_ids: Vec<(String, TaskId)> = Vec::new();
     for it in &t.items {
-        let cid = c.plan.new_task_id();
-        let seq = c.plan.next_task;
-        c.plan.tasks.insert(cid.clone(), Task { id: cid.clone(), title: it.title.clone(), parent: Some(id.clone()), seq, body: it.body.clone(), types: vec![], from_item: Some((ty.clone(), it.id.clone())), core_of: None, narrative: None, priority: None, due: None });
+        let cid = new_task(&mut c.plan, &it.title, Some(id.clone()), it.body.clone());
+        c.plan.tasks.get_mut(&cid).unwrap().from_item = Some((ty.clone(), it.id.clone()));
         subjects.push(cid.clone());
         item_ids.push((it.id.clone(), cid));
     }
@@ -588,7 +750,7 @@ pub fn apply(ty: String, task: String) -> Result<()> {
     h.narrative = Some(narrative);
     let n = subjects.len() - 1;
     let hash = commit::write(&c.store, &c.plan, Commit::new(EventKind::Applied, format!("apply {} to {}", ty, c.plan.number_of(&id)), subjects))?;
-    done(&hash, &format!("applied {} to {}: {} children", ty, c.plan.label(&id), n));
+    done(&c.store, &hash, &format!("applied {} to {}: {} children", ty, c.plan.label(&id), n));
     for ch in c.plan.children(&id) {
         say(&format!("  {}", c.plan.label(&ch.id)));
     }
@@ -598,19 +760,19 @@ pub fn apply(ty: String, task: String) -> Result<()> {
 // ----- state changes ------------------------------------------------------
 
 pub fn spike(task: String) -> Result<()> {
-    let c = open()?;
+    let c = open_rw()?;
     let id = c.plan.resolve(&task)?;
     check_leaf_open(&c, &id, "spike")?;
     if c.derived.status(&id) == Status::Spike {
         bail!("{} is already a spike", c.plan.label(&id));
     }
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::FlaggedAsSpike, format!("spike {}", c.plan.number_of(&id)), vec![id.clone()]))?;
-    done(&h, &format!("flagged {} as a spike: prove it, then break it down", c.plan.label(&id)));
+    done(&c.store, &h, &format!("flagged {} as a spike: prove it, then break it down", c.plan.label(&id)));
     Ok(())
 }
 
 pub fn confirm(task: String) -> Result<()> {
-    let mut c = open()?;
+    let mut c = open_rw()?;
     let id = c.plan.resolve(&task)?;
     let mut n = 0;
     for r in c.plan.reqs.values_mut() {
@@ -623,7 +785,7 @@ pub fn confirm(task: String) -> Result<()> {
         bail!("{} is not tentative", c.plan.label(&id));
     }
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Confirmed, format!("confirm {}", c.plan.number_of(&id)), vec![id.clone()]))?;
-    done(&h, &format!("confirmed {}: it is real work now", c.plan.label(&id)));
+    done(&c.store, &h, &format!("confirmed {}: it is real work now", c.plan.label(&id)));
     Ok(())
 }
 
@@ -668,10 +830,10 @@ fn uncovered(c: &Ctx, id: &str, group: &BTreeSet<TaskId>) -> Vec<String> {
 }
 
 fn transition(tasks: Vec<String>, force: bool, kind: EventKind) -> Result<()> {
-    let c = open()?;
     if tasks.is_empty() {
         bail!("name at least one task");
     }
+    let c = open_rw()?;
     let ids: Vec<TaskId> = tasks.iter().map(|t| c.plan.resolve(t)).collect::<Result<_>>()?;
     let group: BTreeSet<TaskId> = ids.iter().cloned().collect();
     let completing = kind == EventKind::Completed;
@@ -706,7 +868,7 @@ fn transition(tasks: Vec<String>, force: bool, kind: EventKind) -> Result<()> {
     cm.forced = !problems.is_empty();
     let h = commit::write(&c.store, &c.plan, cm)?;
     let labels: Vec<String> = ids.iter().map(|i| c.plan.label(i)).collect();
-    done(&h, &format!("{}{}: {}", if !problems.is_empty() { "FORCED " } else { "" }, kind.name(), labels.join("; ")));
+    done(&c.store, &h, &format!("{}{}: {}", if !problems.is_empty() { "FORCED " } else { "" }, kind.name(), labels.join("; ")));
     if completing {
         // Say what just became ready.
         let history = c.store.history()?;
@@ -731,18 +893,18 @@ pub fn complete(tasks: Vec<String>, force: bool) -> Result<()> {
 }
 
 pub fn pause(task: String) -> Result<()> {
-    let c = open()?;
+    let c = open_rw()?;
     let id = c.plan.resolve(&task)?;
     if c.derived.status(&id) != Status::InProgress {
         bail!("{} is not in progress", c.plan.label(&id));
     }
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Paused, format!("pause {}", c.plan.number_of(&id)), vec![id.clone()]))?;
-    done(&h, &format!("paused {}", c.plan.label(&id)));
+    done(&c.store, &h, &format!("paused {}", c.plan.label(&id)));
     Ok(())
 }
 
 pub fn uncomplete(task: String) -> Result<()> {
-    let c = open()?;
+    let c = open_rw()?;
     let id = c.plan.resolve(&task)?;
     if c.plan.is_parent(&id) {
         bail!("{} is a parent; uncomplete one of its children", c.plan.label(&id));
@@ -751,451 +913,23 @@ pub fn uncomplete(task: String) -> Result<()> {
         bail!("{} is not complete", c.plan.label(&id));
     }
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Uncompleted, format!("uncomplete {}", c.plan.number_of(&id)), vec![id.clone()]))?;
-    done(&h, &format!("reopened {}", c.plan.label(&id)));
+    done(&c.store, &h, &format!("reopened {}", c.plan.label(&id)));
     Ok(())
 }
 
 pub fn drop(task: String, reason: String) -> Result<()> {
-    let c = open()?;
+    let c = open_rw()?;
     let id = c.plan.resolve(&task)?;
     if c.derived.status(&id) == Status::Dropped {
         bail!("{} is already dropped", c.plan.label(&id));
     }
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Dropped, format!("drop {}: {}", c.plan.number_of(&id), reason), vec![id.clone()]))?;
-    done(&h, &format!("dropped {} and everything under it: {}", c.plan.label(&id), reason));
+    done(&c.store, &h, &format!("dropped {} and everything under it: {}", c.plan.label(&id), reason));
     Ok(())
-}
-
-// ----- views ---------------------------------------------------------------
-
-fn block_text(c: &Ctx, b: &Block) -> String {
-    match b {
-        Block::Loop(i) => {
-            let lp = &c.derived.loops[*i];
-            format!("in loop #{} with {}", i + 1, lp.tasks.iter().map(|t| c.plan.number_of(t)).collect::<Vec<_>>().join(", "))
-        }
-        Block::Tentative(r, met) => {
-            if *met {
-                format!("tentative; {} is complete, so confirm or drop ({})", c.plan.label(&c.plan.reqs[r].on), r)
-            } else {
-                format!("tentative until {} ({})", c.plan.label(&c.plan.reqs[r].on), r)
-            }
-        }
-        Block::Waiting(p, r, n) => {
-            let under = if c.plan.is_parent(p) { format!(", {} open under it", n) } else { String::new() };
-            format!("waits on {} ({}: {}{})", c.plan.label(p), r, c.plan.reqs[r].reason, under)
-        }
-    }
-}
-
-pub fn show(task: String, json: bool) -> Result<()> {
-    let c = open()?;
-    let id = c.plan.resolve(&task)?;
-    let t = c.plan.task(&id)?;
-    let st = c.derived.status(&id);
-    let blocks = c.derived.blocks(&c.plan, &id);
-    let events: Vec<&(Hash, Event)> = c.history.iter().filter(|(_, e)| e.subjects.contains(&id)).collect();
-    if json {
-        let v = json!({
-            "task": t,
-            "number": c.plan.number_of(&id),
-            "status": st.name(),
-            "ready": c.derived.is_ready(&c.plan, &id),
-            "tentative": c.derived.is_tentative(&c.plan, &id),
-            "path": c.plan.ancestors_and_self(&id).iter().map(|a| a.id.clone()).collect::<Vec<_>>(),
-            "children": c.plan.children(&id).iter().map(|k| json!({"id": k.id, "number": c.plan.number_of(&k.id), "title": k.title, "status": c.derived.status(&k.id).name()})).collect::<Vec<_>>(),
-            "required_by": c.plan.reqs_on(&id),
-            "requires": c.plan.reqs_from(&id),
-            "blocks": blocks.iter().map(|b| block_text(&c, b)).collect::<Vec<_>>(),
-            "events": events.iter().map(|(h, e)| json!({"hash": h, "kind": e.kind.name(), "time": e.time, "author": e.author, "message": e.message, "forced": e.forced})).collect::<Vec<_>>(),
-        });
-        println!("{}", serde_json::to_string_pretty(&v)?);
-        return Ok(());
-    }
-    println!("{} {}  {}", st.glyph(), c.plan.number_of(&id), t.title);
-    let mut facts = vec![format!("id {}", id), format!("status {}", st.name())];
-    if !t.types.is_empty() {
-        facts.push(format!("type {}", t.types.join(",")));
-    }
-    if st == Status::Dropped {
-        if let Some((_, d)) = c.history.iter().find(|(_, e)| e.subjects.contains(&id) && e.kind == EventKind::Dropped) {
-            facts.push(d.message.clone());
-        }
-    }
-    if let Some((ty, it)) = &t.from_item {
-        facts.push(format!("from item {}/{}", ty, it));
-    }
-    if t.core_of.is_some() {
-        facts.push("core".to_string());
-    }
-    if c.derived.is_tentative(&c.plan, &id) {
-        facts.push("tentative".to_string());
-    }
-    if let Some(p) = &t.priority {
-        facts.push(format!("priority {}", p));
-    }
-    if let Some(d) = &t.due {
-        facts.push(format!("due {}", d));
-    }
-    println!("    {}", facts.join(" · "));
-    let path = c.plan.ancestors_and_self(&id);
-    if path.len() > 1 {
-        println!("\npath:");
-        for a in &path[..path.len() - 1] {
-            println!("  {} {}", c.plan.number_of(&a.id), a.title);
-        }
-    }
-    if !t.body.is_empty() {
-        println!();
-        for l in t.body.lines() {
-            println!("  {}", l);
-        }
-    }
-    let on = c.plan.reqs_on(&id);
-    if !on.is_empty() {
-        println!("\nrequired by:");
-        for r in on {
-            let k = if r.conditional { "conditional" } else if r.blocking { "successor" } else { "technical" };
-            println!("  {} {} [{}]: {}", r.id, k, c.plan.requirer_label(&r.from), r.reason);
-        }
-    }
-    let from = c.plan.reqs_from(&id);
-    if !from.is_empty() {
-        println!("\nrequires:");
-        for r in from {
-            let k = if r.conditional { "conditional on" } else if r.blocking { "predecessor" } else { "technical, of" };
-            println!("  {} {} [{}]: {}", r.id, k, c.plan.label(&r.on), r.reason);
-        }
-    }
-    let mut inherited = Vec::new();
-    for a in &path[..path.len().saturating_sub(1)] {
-        for r in c.plan.reqs_from(&a.id) {
-            if r.blocking {
-                inherited.push(format!("  {} via {}: predecessor [{}]: {}", r.id, c.plan.number_of(&a.id), c.plan.label(&r.on), r.reason));
-            }
-        }
-    }
-    if !inherited.is_empty() {
-        println!("\ninherited:");
-        for l in inherited {
-            println!("{}", l);
-        }
-    }
-    let kids = c.plan.children(&id);
-    if !kids.is_empty() {
-        println!("\nbreakdown:");
-        if let Some(n) = &t.narrative {
-            for l in n.lines() {
-                println!("  {}", l);
-            }
-        }
-        for k in kids {
-            println!("  {} {} {}", c.derived.status(&k.id).glyph(), c.plan.number_of(&k.id), k.title);
-        }
-    } else if !blocks.is_empty() && st != Status::Complete && st != Status::Dropped {
-        println!("\nblocked:");
-        for b in &blocks {
-            println!("  {}", block_text(&c, b));
-        }
-    } else if c.derived.is_ready(&c.plan, &id) {
-        println!("\nready to start");
-    }
-    if !events.is_empty() {
-        println!("\nhistory:");
-        for (h, e) in events.iter().take(8) {
-            println!("  {}  {}  {}{}", &h[..10], e.time, e.kind.name(), if e.forced { " (forced)" } else { "" });
-        }
-    }
-    Ok(())
-}
-
-pub fn plan(task: Option<String>, all: bool, json: bool) -> Result<()> {
-    let c = open()?;
-    let roots: Vec<TaskId> = match task {
-        Some(t) => vec![c.plan.resolve(&t)?],
-        None => c.plan.roots().iter().map(|t| t.id.clone()).collect(),
-    };
-    fn walk(c: &Ctx, id: &TaskId, depth: usize, all: bool, out: &mut Vec<serde_json::Value>, text: &mut String) {
-        let st = c.derived.status(id);
-        if !all && matches!(st, Status::Complete | Status::Dropped) {
-            return;
-        }
-        let t = &c.plan.tasks[id];
-        let mut tags = Vec::new();
-        if c.derived.is_ready(&c.plan, id) {
-            tags.push("ready");
-        }
-        if c.derived.in_loop.contains_key(id) {
-            tags.push("loop");
-        }
-        if c.derived.is_tentative(&c.plan, id) {
-            tags.push("tentative");
-        }
-        let tag = if tags.is_empty() { String::new() } else { format!("  <{}>", tags.join(", ")) };
-        text.push_str(&format!("{}{} {} {}{}\n", "    ".repeat(depth), st.glyph(), c.plan.number_of(id), t.title, tag));
-        out.push(json!({"id": id, "number": c.plan.number_of(id), "title": t.title, "status": st.name(), "depth": depth, "tags": tags}));
-        for k in c.plan.children(id) {
-            walk(c, &k.id, depth + 1, all, out, text);
-        }
-    }
-    let mut out = Vec::new();
-    let mut text = String::new();
-    for r in &roots {
-        walk(&c, r, 0, all, &mut out, &mut text);
-    }
-    if json {
-        println!("{}", serde_json::to_string_pretty(&out)?);
-    } else if text.is_empty() {
-        println!("(no open tasks)");
-    } else {
-        print!("{}", text);
-    }
-    Ok(())
-}
-
-pub fn ready(blocked: bool, json: bool) -> Result<()> {
-    let c = open()?;
-    let ready = c.derived.ready(&c.plan);
-    let mut blocked_list: Vec<(TaskId, Vec<Block>)> = Vec::new();
-    if blocked || json {
-        let mut leaves: Vec<&Task> = c.plan.tasks.values().filter(|t| !c.plan.is_parent(&t.id)).collect();
-        leaves.sort_by_key(|t| t.seq);
-        for t in leaves {
-            let st = c.derived.status(&t.id);
-            if matches!(st, Status::Todo | Status::Spike | Status::Paused) && !c.derived.is_ready(&c.plan, &t.id) {
-                blocked_list.push((t.id.clone(), c.derived.blocks(&c.plan, &t.id)));
-            }
-        }
-    }
-    if json {
-        let v = json!({
-            "ready": ready.iter().map(|t| json!({"id": t, "number": c.plan.number_of(t), "title": c.plan.tasks[t].title, "status": c.derived.status(t).name()})).collect::<Vec<_>>(),
-            "blocked": blocked_list.iter().map(|(t, bs)| json!({"id": t, "number": c.plan.number_of(t), "title": c.plan.tasks[t].title, "blocks": bs.iter().map(|b| block_text(&c, b)).collect::<Vec<_>>()})).collect::<Vec<_>>(),
-        });
-        println!("{}", serde_json::to_string_pretty(&v)?);
-        return Ok(());
-    }
-    if ready.is_empty() {
-        println!("nothing is ready");
-    } else {
-        println!("ready:");
-        for t in &ready {
-            println!("  {} {}", c.derived.status(t).glyph(), c.plan.label(t));
-        }
-    }
-    if blocked {
-        if blocked_list.is_empty() {
-            println!("nothing is blocked");
-        } else {
-            println!("blocked:");
-            for (t, bs) in &blocked_list {
-                println!("  {} {}", c.derived.status(t).glyph(), c.plan.label(t));
-                for b in bs {
-                    println!("      {}", block_text(&c, b));
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-pub fn loops(json: bool) -> Result<()> {
-    let c = open()?;
-    if json {
-        let v: Vec<_> = c
-            .derived
-            .loops
-            .iter()
-            .map(|l| json!({"tasks": l.tasks, "reqs": l.reqs.iter().map(|r| &c.plan.reqs[r]).collect::<Vec<_>>()}))
-            .collect();
-        println!("{}", serde_json::to_string_pretty(&v)?);
-        return Ok(());
-    }
-    if c.derived.loops.is_empty() {
-        println!("no loops");
-        return Ok(());
-    }
-    for (i, l) in c.derived.loops.iter().enumerate() {
-        println!("loop #{}:", i + 1);
-        for t in &l.tasks {
-            println!("  {} {}", c.derived.status(t).glyph(), c.plan.label(t));
-        }
-        println!("  formed by:");
-        for r in &l.reqs {
-            let req = &c.plan.reqs[r];
-            println!("    {} {} -> {}: {}", r, c.plan.number_of(&req.on), match &req.from { Requirer::Task(t) => c.plan.number_of(t), Requirer::Person(p) => p.clone() }, req.reason);
-        }
-    }
-    println!("\nto break a loop: break down one of its tasks and send each requirement to the child it belongs to;");
-    println!("add a common predecessor; turn a requirement into a technical one (`tsk move`, `tsk unlink` + `tsk require`);");
-    println!("or, if the tasks are small, finish them together: `tsk complete <all of them>`.");
-    Ok(())
-}
-
-pub fn stale(json: bool) -> Result<()> {
-    let c = open()?;
-    let mut rows: Vec<(String, String, String, TaskId)> = Vec::new(); // date, person, reason, task
-    let mut unowned: Vec<TaskId> = Vec::new();
-    let mut open_tasks: Vec<&Task> = c.plan.tasks.values().filter(|t| !matches!(c.derived.status(&t.id), Status::Complete | Status::Dropped)).collect();
-    open_tasks.sort_by_key(|t| t.seq);
-    for t in open_tasks {
-        let mut any = false;
-        for a in c.plan.ancestors_and_self(&t.id) {
-            for r in c.plan.reqs_on(&a.id) {
-                if let Requirer::Person(p) = &r.from {
-                    if a.id == t.id {
-                        rows.push((r.created.clone(), p.clone(), r.reason.clone(), t.id.clone()));
-                    }
-                    any = true;
-                }
-            }
-        }
-        if !any && t.parent.is_none() {
-            unowned.push(t.id.clone());
-        }
-    }
-    rows.sort();
-    if json {
-        println!("{}", serde_json::to_string_pretty(&json!({"required": rows.iter().map(|(d, p, r, t)| json!({"date": d, "person": p, "reason": r, "task": t})).collect::<Vec<_>>(), "unowned_roots": unowned}))?);
-        return Ok(());
-    }
-    if rows.is_empty() && unowned.is_empty() {
-        println!("nothing open");
-        return Ok(());
-    }
-    if !rows.is_empty() {
-        println!("open work, oldest requirement first:");
-        for (d, p, r, t) in &rows {
-            println!("  {}  {}  {}: {}", &d[..10], c.plan.label(t), p, r);
-        }
-    }
-    if !unowned.is_empty() {
-        println!("roots nobody has asked for:");
-        for t in unowned {
-            println!("  {}", c.plan.label(&t));
-        }
-    }
-    Ok(())
-}
-
-pub fn forced(json: bool) -> Result<()> {
-    let c = open()?;
-    let rows: Vec<&(Hash, Event)> = c.history.iter().filter(|(_, e)| e.forced).collect();
-    if json {
-        println!("{}", serde_json::to_string_pretty(&rows.iter().map(|(h, e)| json!({"hash": h, "event": e})).collect::<Vec<_>>())?);
-        return Ok(());
-    }
-    if rows.is_empty() {
-        println!("no forced events");
-        return Ok(());
-    }
-    println!("forced events (each one says the process or the tool needs a look):");
-    for (h, e) in rows {
-        println!("  {}  {}  {}  {}", &h[..10], e.time, e.kind.name(), e.message);
-    }
-    Ok(())
-}
-
-pub fn log(task: Option<String>, limit: Option<usize>, json: bool) -> Result<()> {
-    let c = open()?;
-    let filter = match task {
-        Some(t) => Some(c.plan.resolve(&t)?),
-        None => None,
-    };
-    let rows: Vec<&(Hash, Event)> = c
-        .history
-        .iter()
-        .filter(|(_, e)| filter.as_ref().map(|f| e.subjects.contains(f)).unwrap_or(true))
-        .take(limit.unwrap_or(usize::MAX))
-        .collect();
-    if json {
-        println!("{}", serde_json::to_string_pretty(&rows.iter().map(|(h, e)| json!({"hash": h, "event": e})).collect::<Vec<_>>())?);
-        return Ok(());
-    }
-    for (h, e) in rows {
-        let subj = if e.subjects.is_empty() { String::new() } else { format!("  [{}]", e.subjects.iter().map(|s| c.plan.number_of(s)).collect::<Vec<_>>().join(" ")) };
-        println!("{}  {}  {:<16} {}{}{}", &h[..10], e.time, e.kind.name(), e.message, subj, if e.forced { "  FORCED" } else { "" });
-    }
-    Ok(())
-}
-
-pub fn diff(task: String, from: Option<String>, to: Option<String>) -> Result<()> {
-    let c = open()?;
-    let id = c.plan.resolve(&task)?;
-    let touching: Vec<&(Hash, Event)> = c.history.iter().filter(|(_, e)| e.subjects.contains(&id)).collect();
-    let (new_h, old_h) = match (from, to) {
-        (Some(f), Some(t)) => (c.store.resolve_hash(&t)?, c.store.resolve_hash(&f)?),
-        (Some(f), None) => (c.store.head()?.unwrap(), c.store.resolve_hash(&f)?),
-        (None, _) => {
-            if touching.len() < 2 {
-                bail!("{} has only one event; nothing to diff", c.plan.label(&id));
-            }
-            (touching[0].0.clone(), touching[1].0.clone())
-        }
-    };
-    let load = |h: &Hash| -> Result<Option<Task>> {
-        let ev: Event = c.store.read_object(ObjectType::Event, h)?;
-        let snap: Snapshot = c.store.read_object(ObjectType::Snapshot, &ev.snapshot)?;
-        Ok(match snap.tasks.get(&id) {
-            Some(th) => Some(c.store.read_object(ObjectType::Task, th)?),
-            None => None,
-        })
-    };
-    let old = load(&old_h)?;
-    let new = load(&new_h)?;
-    println!("--- {} @ {}", id, &old_h[..10]);
-    println!("+++ {} @ {}", id, &new_h[..10]);
-    let render = |t: &Option<Task>| -> String {
-        match t {
-            None => String::from("(absent)\n"),
-            Some(t) => format!("title: {}\nparent: {}\ntypes: {}\nnarrative: {}\n---\n{}\n", t.title, t.parent.clone().unwrap_or_default(), t.types.join(","), t.narrative.clone().unwrap_or_default(), t.body),
-        }
-    };
-    for l in line_diff(&render(&old), &render(&new)) {
-        println!("{}", l);
-    }
-    Ok(())
-}
-
-/// Minimal LCS line diff.
-fn line_diff(a: &str, b: &str) -> Vec<String> {
-    let a: Vec<&str> = a.lines().collect();
-    let b: Vec<&str> = b.lines().collect();
-    let (n, m) = (a.len(), b.len());
-    let mut dp = vec![vec![0usize; m + 1]; n + 1];
-    for i in (0..n).rev() {
-        for j in (0..m).rev() {
-            dp[i][j] = if a[i] == b[j] { dp[i + 1][j + 1] + 1 } else { dp[i + 1][j].max(dp[i][j + 1]) };
-        }
-    }
-    let (mut i, mut j) = (0, 0);
-    let mut out = Vec::new();
-    while i < n && j < m {
-        if a[i] == b[j] {
-            out.push(format!("  {}", a[i]));
-            i += 1;
-            j += 1;
-        } else if dp[i + 1][j] >= dp[i][j + 1] {
-            out.push(format!("- {}", a[i]));
-            i += 1;
-        } else {
-            out.push(format!("+ {}", b[j]));
-            j += 1;
-        }
-    }
-    while i < n {
-        out.push(format!("- {}", a[i]));
-        i += 1;
-    }
-    while j < m {
-        out.push(format!("+ {}", b[j]));
-        j += 1;
-    }
-    out
 }
 
 pub fn config(key: Option<String>, value: Option<String>) -> Result<()> {
-    let store = Store::discover(&std::env::current_dir()?)?;
+    let store = store_open()?;
     let mut cfg = store.read_config()?;
     match (key, value) {
         (None, _) => {
@@ -1218,7 +952,7 @@ pub fn config(key: Option<String>, value: Option<String>) -> Result<()> {
 // ===== plumbing ============================================================
 
 pub fn cat_object(hash: String) -> Result<()> {
-    let store = Store::discover(&std::env::current_dir()?)?;
+    let store = store_open()?;
     let (ty, body) = store.read_raw(&hash)?;
     println!("{}", ty.name());
     println!("{}", body.trim_end());
@@ -1239,13 +973,13 @@ pub fn hash_object(file: Option<String>) -> Result<()> {
 }
 
 pub fn ls_snapshot(event: Option<String>) -> Result<()> {
-    let store = Store::discover(&std::env::current_dir()?)?;
+    let store = store_open()?;
     let h = match event {
         Some(e) => store.resolve_hash(&e)?,
         None => store.head()?.ok_or_else(|| anyhow!("no HEAD"))?,
     };
     let ev: Event = store.read_object(ObjectType::Event, &h)?;
-    let snap: Snapshot = store.read_object(ObjectType::Snapshot, &ev.snapshot)?;
+    let snap = store.read_snapshot(&ev.snapshot)?;
     println!("snapshot {}", ev.snapshot);
     for (id, h) in &snap.tasks {
         println!("task  {}  {}", h, id);
@@ -1260,7 +994,7 @@ pub fn ls_snapshot(event: Option<String>) -> Result<()> {
 }
 
 pub fn rev_list(limit: Option<usize>) -> Result<()> {
-    let store = Store::discover(&std::env::current_dir()?)?;
+    let store = store_open()?;
     for (h, _) in store.history()?.iter().take(limit.unwrap_or(usize::MAX)) {
         println!("{}", h);
     }

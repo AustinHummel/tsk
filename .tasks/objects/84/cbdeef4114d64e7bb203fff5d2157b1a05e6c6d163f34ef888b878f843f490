@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "37ce8751ad9243097a9ba6e898c0592ca0d16f06159c55d4ddbe65e04425b485",
+  "snapshot": "33c0363990362af6aee8687afba0de919f3bdb96f1167301927ae0a55060228f",
+  "time": "2026-11-03T01:59:53Z",
+  "author": "Claude (side session)",
+  "message": "add Make tsk fit a hierarchical agent org (0.2)",
+  "subjects": [
+    "t1"
+  ],
+  "forced": false
+}

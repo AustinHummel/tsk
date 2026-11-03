@@ -1,0 +1,9 @@
+task
+{
+  "id": "t6",
+  "title": "Link tasks and markdown both ways",
+  "parent": "t1",
+  "seq": 6,
+  "body": "A task points at the vault nodes it serves; a rendered markdown mirror lets a vault note link to a task and lets Obsidian browse the tree.",
+  "types": []
+}

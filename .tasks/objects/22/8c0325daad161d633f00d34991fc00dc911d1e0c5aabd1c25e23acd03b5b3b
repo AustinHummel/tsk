@@ -1,0 +1,10 @@
+task
+{
+  "id": "t5",
+  "title": "Give an agent its scope",
+  "parent": "t1",
+  "seq": 5,
+  "body": "One command prints the chain of intent from root to the agent's task; events carry the agent's identity; the store stays small enough to keep forever.",
+  "types": [],
+  "narrative": "Scope is two things: what an agent reads to know its intent (1, 2) and what the store must stay like to be kept forever (3, 4). Fields reach the context command, which prints them; the release ships the tree format, so that requirement goes to 3."
+}

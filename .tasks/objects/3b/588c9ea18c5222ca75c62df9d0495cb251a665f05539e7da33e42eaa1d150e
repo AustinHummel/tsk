@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Started",
+  "parent": "8784577c371094fe2e421af175bc65128d404c2765d03d3d0edf637f45c1bb7c",
+  "snapshot": "d5a0c080023234483691297e25e1c9b6b9abd9a462d3ad8e4a1910a965c73dfc",
+  "time": "2026-11-03T02:01:50Z",
+  "author": "Claude (side session)",
+  "message": "start 1.2",
+  "subjects": [
+    "t3"
+  ],
+  "forced": false
+}

@@ -1,0 +1,10 @@
+task
+{
+  "id": "t7",
+  "title": "Keep the store in step with git",
+  "parent": "t1",
+  "seq": 7,
+  "body": "A human-readable event log inside `.tasks/` shows in every commit diff; a plan diff can be taken against the last git commit.",
+  "types": [],
+  "narrative": "The log (1) is the always-on record; the diff (2) is the on-demand view; (3) ties the view to git's notion of \"since the last commit\". The lock guards the commit path the log rides on, so that requirement goes to 1; the release ships the log, so that one goes to 1 too."
+}

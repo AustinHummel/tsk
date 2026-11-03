@@ -34,24 +34,39 @@ impl Plan {
         Ok(plan)
     }
 
-    /// Write every object and return the snapshot. Objects already stored
-    /// are not rewritten, so this is cheap.
-    pub fn save(&self, store: &Store) -> Result<Snapshot> {
-        let mut snap = Snapshot {
-            next_task: self.next_task,
-            next_req: self.next_req,
-            ..Default::default()
-        };
-        for (id, t) in &self.tasks {
-            snap.tasks.insert(id.clone(), store.write_object(ObjectType::Task, t)?);
-        }
+    /// Write every object and the snapshot, as a tree of per-parent objects,
+    /// and return the snapshot's hash. Objects already stored are not
+    /// rewritten, so a change costs one path of the tree, not the plan.
+    pub fn save(&self, store: &Store) -> Result<Hash> {
+        let mut reqs_on: HashMap<&str, BTreeMap<ReqId, Hash>> = HashMap::new();
         for (id, r) in &self.reqs {
-            snap.reqs.insert(id.clone(), store.write_object(ObjectType::Req, r)?);
+            reqs_on.entry(r.on.as_str()).or_default().insert(id.clone(), store.write_object(ObjectType::Req, r)?);
         }
+        fn write_tree(plan: &Plan, store: &Store, parent: Option<&str>, reqs_on: &HashMap<&str, BTreeMap<ReqId, Hash>>) -> Result<Option<Hash>> {
+            let kids = match parent {
+                None => plan.roots(),
+                Some(p) => plan.children(p),
+            };
+            if kids.is_empty() {
+                return Ok(None);
+            }
+            let mut tree = Tree::default();
+            for k in kids {
+                tree.entries.push(TreeEntry {
+                    id: k.id.clone(),
+                    task: store.write_object(ObjectType::Task, k)?,
+                    reqs: reqs_on.get(k.id.as_str()).cloned().unwrap_or_default(),
+                    children: write_tree(plan, store, Some(&k.id), reqs_on)?,
+                });
+            }
+            Ok(Some(store.write_object(ObjectType::Tree, &tree)?))
+        }
+        let mut types = BTreeMap::new();
         for (id, t) in &self.types {
-            snap.types.insert(id.clone(), store.write_object(ObjectType::Type, t)?);
+            types.insert(id.clone(), store.write_object(ObjectType::Type, t)?);
         }
-        Ok(snap)
+        let header = SnapshotHeader { version: 2, tree: write_tree(self, store, None, &reqs_on)?, types, next_task: self.next_task, next_req: self.next_req };
+        store.write_object(ObjectType::Snapshot, &header)
     }
 
     pub fn new_task_id(&mut self) -> TaskId {
@@ -212,6 +227,21 @@ impl Plan {
             .collect();
         v.sort_by_key(|r| r.id.clone());
         v
+    }
+
+    /// A field's value on the task or the nearest ancestor that sets it.
+    pub fn field(&self, id: &str, key: &str) -> Option<(TaskId, String)> {
+        let chain = self.ancestors_and_self(id);
+        chain.iter().rev().find_map(|t| t.fields.get(key).map(|v| (t.id.clone(), v.clone())))
+    }
+
+    /// Whether the task matches every `key[=value]` filter, own or inherited.
+    pub fn matches(&self, id: &str, filters: &[(String, Option<String>)]) -> bool {
+        filters.iter().all(|(k, v)| match (self.field(id, k), v) {
+            (Some(_), None) => true,
+            (Some((_, have)), Some(want)) => have == *want,
+            (None, _) => false,
+        })
     }
 
     pub fn requirer_label(&self, r: &Requirer) -> String {

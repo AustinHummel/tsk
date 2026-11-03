@@ -1,0 +1,9 @@
+task
+{
+  "id": "t12",
+  "title": "Prune",
+  "parent": "t5",
+  "seq": 12,
+  "body": "`tsk prune` drops old snapshots and the objects only they reach, keeping every event (the chain and the log line), so a long history stays small.",
+  "types": []
+}

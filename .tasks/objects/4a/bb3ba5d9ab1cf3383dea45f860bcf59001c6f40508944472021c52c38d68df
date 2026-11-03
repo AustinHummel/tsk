@@ -1,0 +1,13 @@
+req
+{
+  "id": "r7",
+  "from": {
+    "kind": "task",
+    "id": "t4"
+  },
+  "on": "t16",
+  "reason": "the release ships the log file",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T01:59:53Z"
+}

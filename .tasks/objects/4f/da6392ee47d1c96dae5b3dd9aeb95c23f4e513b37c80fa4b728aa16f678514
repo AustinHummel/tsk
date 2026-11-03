@@ -1,0 +1,9 @@
+task
+{
+  "id": "t13",
+  "title": "Doc links on tasks",
+  "parent": "t6",
+  "seq": 13,
+  "body": "`tsk doc <task> <path>` records the vault nodes a task serves or produced; shown on the card and in context.",
+  "types": []
+}

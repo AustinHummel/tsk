@@ -1,60 +1,7 @@
 //! End-to-end tests against the built binary, in a temp project.
 
-use std::path::PathBuf;
-use std::process::Command;
-
-struct Proj {
-    dir: PathBuf,
-}
-
-impl Proj {
-    fn new(name: &str) -> Proj {
-        let dir = std::env::temp_dir().join(format!("tsk-test-{}-{}", name, std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let p = Proj { dir };
-        p.ok(&["init"]);
-        p
-    }
-    fn run(&self, args: &[&str]) -> (bool, String) {
-        let out = Command::new(env!("CARGO_BIN_EXE_tsk")).args(args).current_dir(&self.dir).output().unwrap();
-        let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-        (out.status.success(), text)
-    }
-    fn ok(&self, args: &[&str]) -> String {
-        let (ok, text) = self.run(args);
-        assert!(ok, "expected success for {:?}:\n{}", args, text);
-        text
-    }
-    fn fails(&self, args: &[&str]) -> String {
-        let (ok, text) = self.run(args);
-        assert!(!ok, "expected failure for {:?}:\n{}", args, text);
-        text
-    }
-    fn file(&self, name: &str, content: &str) -> String {
-        let p = self.dir.join(name);
-        std::fs::write(&p, content).unwrap();
-        p.to_string_lossy().to_string()
-    }
-}
-
-impl Drop for Proj {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
-fn dana(p: &Proj) {
-    p.ok(&["add", "Help Dana", "--by", "Dana: the same two picks always win"]);
-    let f = p.file(
-        "bd1.md",
-        "= child: Gather requirements\n= child: Build a CLI\n= child: Show Dana\n= narrative\nunderstand, build, hand over\n",
-    );
-    p.ok(&["breakdown", "1", "-F", &f]);
-    p.ok(&["link", "1.1", "1.2", "what fair means"]);
-    p.ok(&["link", "1.1", "1.2", "do we need help"]);
-    p.ok(&["link", "1.2", "1.3", "build before showing"]);
-}
+mod common;
+use common::{dana, Proj};
 
 #[test]
 fn breakdown_is_atomic_and_hands_requirements_down() {

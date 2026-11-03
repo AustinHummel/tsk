@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "f05eb2cc3718eb53d395899e627abd68e2c80088692d254484ed60008c11b957",
+  "snapshot": "e44a7b5ee888c993a1aa8a1fdd5212f12205cf8a75c2e0ac0426fcbc87c48507",
+  "time": "2026-11-03T01:59:53Z",
+  "author": "Claude (side session)",
+  "message": "link 1.1 -> 1.6: the event log file is appended inside the locked commit path",
+  "subjects": [
+    "t2",
+    "t7"
+  ],
+  "forced": false
+}

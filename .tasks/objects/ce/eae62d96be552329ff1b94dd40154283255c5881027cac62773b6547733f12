@@ -1,0 +1,9 @@
+task
+{
+  "id": "t10",
+  "title": "Agent identity on events",
+  "parent": "t5",
+  "seq": 10,
+  "body": "`TSK_AUTHOR` wins over the store's `author` config, so each agent session stamps its own events on a shared store.",
+  "types": []
+}

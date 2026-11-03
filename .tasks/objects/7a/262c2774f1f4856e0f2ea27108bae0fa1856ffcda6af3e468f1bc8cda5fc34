@@ -1,0 +1,9 @@
+task
+{
+  "id": "t2",
+  "title": "Serialize writers",
+  "parent": "t1",
+  "seq": 2,
+  "body": "Parallel agents commit to one store without losing or corrupting an event. Readers never block.",
+  "types": []
+}

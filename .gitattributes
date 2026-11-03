@@ -1,0 +1,5 @@
+# Sources and docs: LF in the repo and on checkout.
+* text=auto eol=lf
+# The store's objects are named by the hash of their bytes: never convert.
+.tasks/** -text
+.tasks/log text eol=lf

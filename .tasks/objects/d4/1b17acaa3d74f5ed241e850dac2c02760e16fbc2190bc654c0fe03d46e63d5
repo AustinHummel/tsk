@@ -1,0 +1,9 @@
+task
+{
+  "id": "t7",
+  "title": "Keep the store in step with git",
+  "parent": "t1",
+  "seq": 7,
+  "body": "A human-readable event log inside `.tasks/` shows in every commit diff; a plan diff can be taken against the last git commit.",
+  "types": []
+}

@@ -1,0 +1,13 @@
+req
+{
+  "id": "r5",
+  "from": {
+    "kind": "task",
+    "id": "t4"
+  },
+  "on": "t5",
+  "reason": "the release ships the small-store format",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T01:59:53Z"
+}

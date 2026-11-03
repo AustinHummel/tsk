@@ -1,0 +1,9 @@
+task
+{
+  "id": "t16",
+  "title": "Event log file",
+  "parent": "t7",
+  "seq": 16,
+  "body": "Every commit appends one line to `.tasks/log` (time, hash, author, kind, subjects, message), so a git diff of the store reads as a changelog. Ignore the lock file in git.",
+  "types": []
+}

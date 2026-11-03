@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Set",
+  "parent": "83db4c8c202b52fceb73791a1a28bb065e886ea20a002d01315ce74fef8b5557",
+  "snapshot": "b13fe6481c79fe59bb23bfe35bd8ee0058db2c4988243085f407ffb79eb7b3a7",
+  "time": "2026-11-03T02:13:38Z",
+  "author": "Claude (side session)",
+  "message": "set 1.4.2 -note",
+  "subjects": [
+    "t10"
+  ],
+  "forced": false
+}

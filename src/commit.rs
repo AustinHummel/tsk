@@ -48,9 +48,10 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+/// Write the event. The caller holds the store lock (see `commands::open_rw`),
+/// so HEAD cannot move between reading the parent and setting the child.
 pub fn write(store: &Store, plan: &Plan, c: Commit) -> Result<Hash> {
-    let snap = plan.save(store)?;
-    let snap_hash = store.write_object(ObjectType::Snapshot, &snap)?;
+    let snap_hash = plan.save(store)?;
     let ev = Event {
         kind: c.kind,
         parent: store.head()?,
@@ -63,6 +64,33 @@ pub fn write(store: &Store, plan: &Plan, c: Commit) -> Result<Hash> {
         forced: c.forced,
     };
     let hash = store.write_object(ObjectType::Event, &ev)?;
+    // A store from before the log existed gets its history written once.
+    if store.log_is_empty() {
+        for (h, e) in store.history()?.iter().rev() {
+            store.append_log(&log_line(h, e, plan))?;
+        }
+    }
     store.set_head(&hash)?;
+    store.append_log(&log_line(&hash, &ev, plan))?;
     Ok(hash)
+}
+
+/// One line of `.tasks/log`: time, event, kind, message, the tasks by
+/// outline number, the author. Newlines in the message are flattened.
+pub fn log_line(hash: &str, ev: &Event, plan: &Plan) -> String {
+    let subj = if ev.subjects.is_empty() {
+        String::new()
+    } else {
+        format!("  [{}]", ev.subjects.iter().map(|s| plan.number_of(s)).collect::<Vec<_>>().join(" "))
+    };
+    format!(
+        "{}  {}  {:<16} {}{}  -- {}{}",
+        ev.time,
+        &hash[..10],
+        ev.kind.name(),
+        ev.message.replace(['\n', '\r'], " "),
+        subj,
+        ev.author,
+        if ev.forced { "  FORCED" } else { "" }
+    )
 }

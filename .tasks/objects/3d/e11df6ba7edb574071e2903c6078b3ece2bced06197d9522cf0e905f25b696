@@ -1,0 +1,13 @@
+req
+{
+  "id": "r9",
+  "from": {
+    "kind": "task",
+    "id": "t12"
+  },
+  "on": "t11",
+  "reason": "prune computes reachability through the tree objects",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T02:01:43Z"
+}

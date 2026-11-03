@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "b3fe51faf7b4e071b27beee04ac884c2afee88219f1584905a841001af3b1b9d",
+  "snapshot": "90c7e15752eab7032afee21dc470a7e140b28b48288e07868bab75e441c43e26",
+  "time": "2026-11-03T02:01:54Z",
+  "author": "Claude (side session)",
+  "message": "amend 1 with Fix bugs dogfooding finds",
+  "subjects": [
+    "t1",
+    "t19"
+  ],
+  "forced": false
+}

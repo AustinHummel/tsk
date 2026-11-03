@@ -1,0 +1,9 @@
+task
+{
+  "id": "t8",
+  "title": "User-defined fields",
+  "parent": "t1",
+  "seq": 8,
+  "body": "Tasks and requirements take arbitrary key=value fields, shown, filterable, and carried in JSON.",
+  "types": []
+}

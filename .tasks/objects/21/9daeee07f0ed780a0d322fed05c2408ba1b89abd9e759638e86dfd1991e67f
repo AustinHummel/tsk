@@ -1,0 +1,13 @@
+req
+{
+  "id": "r3",
+  "from": {
+    "kind": "task",
+    "id": "t14"
+  },
+  "on": "t8",
+  "reason": "rendered pages show a task's fields",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T01:59:53Z"
+}

@@ -1,0 +1,9 @@
+task
+{
+  "id": "t5",
+  "title": "Give an agent its scope",
+  "parent": "t1",
+  "seq": 5,
+  "body": "One command prints the chain of intent from root to the agent's task; events carry the agent's identity; the store stays small enough to keep forever.",
+  "types": []
+}

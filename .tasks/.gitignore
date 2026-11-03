@@ -1,0 +1,6 @@
+# transient files of a running tsk
+lock
+lock.broken-*
+HEAD.tmp
+*.EDIT
+*.tmp

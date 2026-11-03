@@ -1,0 +1,19 @@
+snapshot
+{
+  "tasks": {
+    "t1": "2634093406392b477ec9bee17307dd8d1687267c6277f2ad41433a0284e1ccc8",
+    "t2": "7a262c2774f1f4856e0f2ea27108bae0fa1856ffcda6af3e468f1bc8cda5fc34",
+    "t3": "800c44217dc663f0c88af1dd34fcb3c806d964f563f7cbbd8ae87d59d33efa18",
+    "t4": "8aaa65025c65c8213effbcd6d7a2aabf2ee4449751afac76f778580849da9c20",
+    "t5": "c07196ddd9ff2b4d8de0f452d8cc8837284a38c0c3a0373efbaecd63b8e16ccb",
+    "t6": "f8dfb42d676347b0bd434a5d687a15b3d4c25ee7a6dbdcfb6a68a768f89fb930",
+    "t7": "d41b17acaa3d74f5ed241e850dac2c02760e16fbc2190bc654c0fe03d46e63d5",
+    "t8": "9901d546fb4a2233790e782425b8583316062a63a90a335b469d9cc6defbea17"
+  },
+  "reqs": {
+    "r1": "0f0e9ef30d9c8431b2f1eb4480c42c5a6703ded35e3fe116ecb61dfa3239027c"
+  },
+  "types": {},
+  "next_task": 8,
+  "next_req": 1
+}

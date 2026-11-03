@@ -3,10 +3,14 @@ mod commands;
 mod commit;
 mod model;
 mod plan;
+mod prune;
+mod render;
 mod state;
 mod store;
+mod views;
 
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 /// A simple CLI for project planning and tracking. Command language inspired
 /// by Git: every change is an immutable event, every state is derived.
@@ -16,6 +20,13 @@ struct Cli {
     /// Machine-readable output: views print JSON, and a change prints its event.
     #[arg(long, global = true)]
     json: bool,
+    /// Run as if started in DIR (like `git -C`).
+    #[arg(short = 'C', global = true, value_name = "DIR")]
+    dir: Option<PathBuf>,
+    /// The store to use: a `.tasks` directory or the project that holds one.
+    /// Also read from `TSK_STORE`. Leaves the working directory alone.
+    #[arg(long, global = true, env = "TSK_STORE", value_name = "PATH")]
+    store: Option<PathBuf>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -28,10 +39,10 @@ enum Cmd {
     Add {
         title: String,
         /// Card body (markdown). `-` reads stdin.
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         body: Option<String>,
         /// Who requires it, and why: `--by "Dana: the same two picks always win"`.
-        #[arg(long = "by")]
+        #[arg(long = "by", allow_hyphen_values = true)]
         required_by: Vec<String>,
         #[arg(long)]
         priority: Option<String>,
@@ -52,10 +63,10 @@ enum Cmd {
     Amend {
         parent: String,
         title: String,
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         body: Option<String>,
         /// Text appended to the parent's narrative saying what the child covers.
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         narrative: Option<String>,
     },
     /// Edit a task's body in $EDITOR, or set it from a file or argument.
@@ -63,18 +74,19 @@ enum Cmd {
         task: String,
         #[arg(short = 'F', long)]
         file: Option<String>,
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         body: Option<String>,
         #[arg(long)]
         title: Option<String>,
         /// Replace the breakdown narrative.
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         narrative: Option<String>,
     },
     /// Make PRED a predecessor of SUCC, for a reason. The reason is what SUCC requires of PRED.
     Link {
         pred: String,
         succ: String,
+        #[arg(allow_hyphen_values = true)]
         reason: String,
         /// SUCC's existence, not just its start, waits on PRED (a tentative task).
         #[arg(long)]
@@ -84,12 +96,14 @@ enum Cmd {
     Require {
         from: String,
         on: String,
+        #[arg(allow_hyphen_values = true)]
         reason: String,
     },
     /// Record that a person requires a task, and why.
     By {
         task: String,
         person: String,
+        #[arg(allow_hyphen_values = true)]
         reason: String,
     },
     /// Move a requirement to a different task at either end, keeping its history.
@@ -102,6 +116,28 @@ enum Cmd {
     },
     /// Remove a requirement.
     Unlink { req: String },
+    /// Set user-defined fields on a task (or, with --req, a requirement): `key=value`.
+    Set {
+        /// The task, or with `--req` the requirement id.
+        target: String,
+        /// `key=value` pairs. Keys are letters, digits, `_`, `-`, `.`.
+        #[arg(allow_hyphen_values = true)]
+        pairs: Vec<String>,
+        /// Remove a field.
+        #[arg(long, value_name = "KEY")]
+        unset: Vec<String>,
+        /// TARGET is a requirement id.
+        #[arg(long)]
+        req: bool,
+    },
+    /// Link a task to a document it serves or produced (a path or URL); list them with no PATH.
+    Doc {
+        task: String,
+        path: Option<String>,
+        /// Remove the link instead.
+        #[arg(long, value_name = "PATH")]
+        rm: Option<String>,
+    },
     /// Task types: reusable scope stamped onto every task that carries one.
     #[command(subcommand)]
     Type(TypeCmd),
@@ -128,9 +164,20 @@ enum Cmd {
     /// Reopen a completed task.
     Uncomplete { task: String },
     /// Drop a task, with the reason.
-    Drop { task: String, reason: String },
+    Drop {
+        task: String,
+        #[arg(allow_hyphen_values = true)]
+        reason: String,
+    },
     /// The card: everything needed to work the task.
     Show { task: String },
+    /// The chain of intent from the root to a task: what an agent reads before working it.
+    Context {
+        task: String,
+        /// Also print every ancestor's body, not just its narrative.
+        #[arg(long)]
+        full: bool,
+    },
     /// The outline with derived status.
     Plan {
         /// Only this subtree.
@@ -138,12 +185,18 @@ enum Cmd {
         /// Also show complete and dropped tasks.
         #[arg(short, long)]
         all: bool,
+        /// Only tasks with this field (`key` or `key=value`), own or inherited. Repeatable.
+        #[arg(long = "where", value_name = "KEY[=VALUE]")]
+        filters: Vec<String>,
     },
     /// Leaves that can start now, and what every other open leaf waits on.
     Ready {
         /// Also list blocked leaves.
         #[arg(short, long)]
         blocked: bool,
+        /// Only tasks with this field (`key` or `key=value`), own or inherited. Repeatable.
+        #[arg(long = "where", value_name = "KEY[=VALUE]")]
+        filters: Vec<String>,
     },
     /// Every dependency loop, with the requirements that form it.
     Loops,
@@ -157,15 +210,39 @@ enum Cmd {
         #[arg(short = 'n', long)]
         limit: Option<usize>,
     },
-    /// What changed in a task between two events (default: its last change).
+    /// What changed: in the whole plan between two events (default: since the last git
+    /// commit of the store, else the last event), or in one task.
     Diff {
-        task: String,
+        task: Option<String>,
+        /// The older event.
         #[arg(long)]
         from: Option<String>,
+        /// The newer event (default HEAD).
         #[arg(long)]
         to: Option<String>,
+        /// Take the older event from the store's HEAD as committed in git at REV (default HEAD).
+        #[arg(long, value_name = "REV", num_args = 0..=1, default_missing_value = "HEAD")]
+        git: Option<String>,
     },
-    /// Read or set config (`author`, `editor`, aliases as `alias.<name>`).
+    /// Write a markdown page per task into a folder a vault can link to and browse.
+    Render {
+        /// Output folder, relative to the project (default: config `render.dir`, else `tasks`).
+        #[arg(long)]
+        dir: Option<String>,
+    },
+    /// Markdown files in the project that link to a task's page.
+    Backlinks { task: String },
+    /// Remove objects nothing reaches; with --before, also the snapshots of older events,
+    /// keeping every event and the log.
+    Prune {
+        /// Events older than this one lose their snapshots.
+        #[arg(long, value_name = "EVENT")]
+        before: Option<String>,
+        /// Report what would go without removing anything.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Read or set config (`author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`).
     Config { key: Option<String>, value: Option<String> },
 
     // ----- plumbing -----
@@ -188,7 +265,7 @@ enum TypeCmd {
     Add {
         id: String,
         title: String,
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         body: Option<String>,
     },
     /// Add an item to a type. Applies to every task carrying the type, which `tsk type affected` lists.
@@ -196,7 +273,7 @@ enum TypeCmd {
         r#type: String,
         id: String,
         title: String,
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         body: Option<String>,
         /// The item is tentative: its existence waits on this task.
         #[arg(long)]
@@ -212,7 +289,7 @@ enum TypeCmd {
         item: String,
         #[arg(long)]
         title: Option<String>,
-        #[arg(short, long)]
+        #[arg(short, long, allow_hyphen_values = true)]
         body: Option<String>,
     },
     /// Show a type and the tasks that carry it.
@@ -225,6 +302,13 @@ fn main() {
     let cli = Cli::parse();
     let json = cli.json;
     commands::set_json(json);
+    if let Some(d) = &cli.dir {
+        if let Err(e) = std::env::set_current_dir(d) {
+            eprintln!("tsk: cannot change to {}: {}", d.display(), e);
+            std::process::exit(1);
+        }
+    }
+    commands::set_store(cli.store.clone());
     let r = match cli.cmd {
         Cmd::Init => commands::init(),
         Cmd::Add { title, body, required_by, priority, due } => commands::add(title, body, required_by, priority, due),
@@ -236,6 +320,8 @@ fn main() {
         Cmd::By { task, person, reason } => commands::by(task, person, reason),
         Cmd::Move { req, from, on } => commands::move_req(req, from, on),
         Cmd::Unlink { req } => commands::unlink(req),
+        Cmd::Set { target, pairs, unset, req } => commands::set(target, pairs, unset, req),
+        Cmd::Doc { task, path, rm } => commands::doc(task, path, rm),
         Cmd::Type(t) => match t {
             TypeCmd::Add { id, title, body } => commands::type_add(id, title, body),
             TypeCmd::Item { r#type, id, title, body, pending, reqs } => commands::type_item(r#type, id, title, body, pending, reqs),
@@ -251,14 +337,18 @@ fn main() {
         Cmd::Complete { tasks, force } => commands::complete(tasks, force),
         Cmd::Uncomplete { task } => commands::uncomplete(task),
         Cmd::Drop { task, reason } => commands::drop(task, reason),
-        Cmd::Show { task } => commands::show(task, json),
-        Cmd::Plan { task, all } => commands::plan(task, all, json),
-        Cmd::Ready { blocked } => commands::ready(blocked, json),
-        Cmd::Loops => commands::loops(json),
-        Cmd::Stale => commands::stale(json),
-        Cmd::Forced => commands::forced(json),
-        Cmd::Log { task, limit } => commands::log(task, limit, json),
-        Cmd::Diff { task, from, to } => commands::diff(task, from, to),
+        Cmd::Show { task } => views::show(task, json),
+        Cmd::Context { task, full } => views::context(task, full, json),
+        Cmd::Plan { task, all, filters } => views::plan(task, all, filters, json),
+        Cmd::Ready { blocked, filters } => views::ready(blocked, filters, json),
+        Cmd::Loops => views::loops(json),
+        Cmd::Stale => views::stale(json),
+        Cmd::Forced => views::forced(json),
+        Cmd::Log { task, limit } => views::log(task, limit, json),
+        Cmd::Diff { task, from, to, git } => views::diff(task, from, to, git, json),
+        Cmd::Render { dir } => render::render(dir),
+        Cmd::Backlinks { task } => render::backlinks(task, json),
+        Cmd::Prune { before, dry_run } => prune::prune(before, dry_run),
         Cmd::Config { key, value } => commands::config(key, value),
         Cmd::CatObject { hash } => commands::cat_object(hash),
         Cmd::HashObject { file } => commands::hash_object(file),
@@ -266,7 +356,7 @@ fn main() {
         Cmd::RevList { limit } => commands::rev_list(limit),
     };
     if let Err(e) = r {
-        eprintln!("tsk: {}", e);
+        eprintln!("tsk: {:#}", e);
         std::process::exit(1);
     }
 }

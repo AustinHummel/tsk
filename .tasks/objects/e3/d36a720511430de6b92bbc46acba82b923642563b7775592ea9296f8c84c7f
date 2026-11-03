@@ -1,0 +1,9 @@
+task
+{
+  "id": "t18",
+  "title": "Diff against git",
+  "parent": "t7",
+  "seq": 18,
+  "body": "`tsk diff --git [rev]` reads the store's HEAD as of a git revision and diffs from there, so a session can see what it changed since the last commit.",
+  "types": []
+}

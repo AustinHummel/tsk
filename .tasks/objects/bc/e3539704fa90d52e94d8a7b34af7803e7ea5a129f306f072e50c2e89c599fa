@@ -1,0 +1,9 @@
+task
+{
+  "id": "t11",
+  "title": "Tree snapshots",
+  "parent": "t5",
+  "seq": 11,
+  "body": "A snapshot is a tree of per-parent objects, like Git's trees, so a change rewrites one path instead of the whole plan. Old flat snapshots still load.",
+  "types": []
+}

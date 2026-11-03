@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "9f13c5ab05edd091a172165e965f02674621be9ad30cd1a2ad796f0fd73b6ebf",
+  "snapshot": "7f10c77d3f39be8da2eda768f5cb1a2d5f8e22f68160d9a06ac587c4b39373b9",
+  "time": "2026-11-03T01:59:53Z",
+  "author": "Claude (side session)",
+  "message": "link 1.7 -> 1.5: rendered pages show a task's fields",
+  "subjects": [
+    "t8",
+    "t6"
+  ],
+  "forced": false
+}

@@ -1,0 +1,9 @@
+task
+{
+  "id": "t3",
+  "title": "Address a store from anywhere",
+  "parent": "t1",
+  "seq": 3,
+  "body": "A command names its store (`--store`, `TSK_STORE`, `-C`) instead of depending on the terminal's cwd.",
+  "types": []
+}

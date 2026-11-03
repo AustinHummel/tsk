@@ -1,0 +1,9 @@
+task
+{
+  "id": "t1",
+  "title": "Make tsk fit a hierarchical agent org (0.2)",
+  "parent": null,
+  "seq": 1,
+  "body": "",
+  "types": []
+}

@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "ce23c2334a80e477c9cb57fbaa039a5cbcfacda068d40eada9dab9190ff76264",
+  "snapshot": "223fa80f86f723c0b128fb98eec9b862b4c24fe66e3fe831f9a032dbce3853b0",
+  "time": "2026-11-03T01:59:53Z",
+  "author": "Claude (side session)",
+  "message": "link 1.7 -> 1.4: the context pack prints the assignment fields (agent, run)",
+  "subjects": [
+    "t8",
+    "t5"
+  ],
+  "forced": false
+}
