@@ -182,6 +182,8 @@ pub enum EventKind {
     Set,
     /// Old snapshots were removed; the plan is unchanged.
     Pruned,
+    /// Another line of history was replayed onto this one.
+    Merged,
 }
 
 impl EventKind {
@@ -208,6 +210,7 @@ impl EventKind {
             EventKind::Dropped => "dropped",
             EventKind::Set => "set",
             EventKind::Pruned => "pruned",
+            EventKind::Merged => "merged",
         }
     }
 }
@@ -229,6 +232,10 @@ pub struct Event {
     pub group: Vec<TaskId>,
     #[serde(default)]
     pub forced: bool,
+    /// When this event is the replay of an event from another line of
+    /// history (a merge), the original's hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replayed_from: Option<Hash>,
 }
 
 /// What an object is, for `cat-object`.

@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "d974b70959ca6ffd1ff702b833df2fb961791e78dc1777bf76fff43a8f7be6ec",
+  "snapshot": "f0cde4af96007836b88e7dae3bd0ef5c07fb3dd67ffcb3aa07a2cfad8724b70a",
+  "time": "2026-11-03T03:43:26Z",
+  "author": "Claude (side session)",
+  "message": "link 2.4 -> 2.5: release after tests pass",
+  "subjects": [
+    "t24",
+    "t25"
+  ],
+  "forced": false
+}

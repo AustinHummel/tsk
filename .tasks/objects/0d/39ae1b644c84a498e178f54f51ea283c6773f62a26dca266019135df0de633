@@ -1,0 +1,9 @@
+task
+{
+  "id": "t22",
+  "title": "Pending merge in HEAD and a git merge driver",
+  "parent": "t20",
+  "seq": 22,
+  "body": "`.tasks/HEAD` may carry a second line `merge <hash>`; any command then performs the merge first (writes), or warns (reads). A git merge driver (`tsk merge-driver`, installed by `tsk git-setup`) resolves a HEAD conflict by writing that pending line, so `git pull` never blocks; without the driver, `tsk merge` reads git's conflict markers from HEAD.",
+  "types": []
+}

@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "a181f94474ef868050761a4d8b7f584fc7e0c1657d91b021b79836e9d8a6a4e0",
+  "snapshot": "c8f71bfb01cac2d0bd15e7bfe71aca9f074d9c9266b729add9e2f443f7a425fa",
+  "time": "2026-11-03T03:43:26Z",
+  "author": "Claude (side session)",
+  "message": "link 2.1 -> 2.4: tests exercise the engine",
+  "subjects": [
+    "t21",
+    "t24"
+  ],
+  "forced": false
+}

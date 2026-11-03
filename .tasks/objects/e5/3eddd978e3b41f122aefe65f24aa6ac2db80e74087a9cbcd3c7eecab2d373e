@@ -1,0 +1,9 @@
+task
+{
+  "id": "t24",
+  "title": "Tests",
+  "parent": "t20",
+  "seq": 24,
+  "body": "Replay with disjoint changes, colliding ids, a field conflict refused then resolved by `--prefer`, status touched on both sides reported, a real git pull resolved by the driver, and by markers without it.",
+  "types": []
+}

@@ -1,6 +1,7 @@
 mod breakdown;
 mod commands;
 mod commit;
+mod merge;
 mod model;
 mod plan;
 mod prune;
@@ -242,6 +243,22 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Replay another line of history (another copy of this store) onto ours.
+    Merge {
+        /// The other HEAD. Default: the merge git left pending or conflicted in `.tasks/HEAD`.
+        theirs: Option<String>,
+        /// Resolve a field changed on both sides: `ours` or `theirs`.
+        #[arg(long, value_name = "SIDE")]
+        prefer: Option<String>,
+        /// Report what would happen without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Take the other HEAD from git's MERGE_HEAD.
+        #[arg(long)]
+        git: bool,
+    },
+    /// Configure git to hand `.tasks/HEAD` merges to tsk (once per machine).
+    GitSetup,
     /// Read or set config (`author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`).
     Config { key: Option<String>, value: Option<String> },
 
@@ -252,6 +269,8 @@ enum Cmd {
     HashObject { file: Option<String> },
     /// List every id -> hash in a snapshot (default HEAD).
     LsSnapshot { event: Option<String> },
+    /// The git merge driver for `.tasks/HEAD` (installed by `git-setup`).
+    MergeDriver { ours: String, theirs: String },
     /// List event hashes from HEAD back.
     RevList {
         #[arg(short = 'n', long)]
@@ -349,6 +368,9 @@ fn main() {
         Cmd::Render { dir } => render::render(dir),
         Cmd::Backlinks { task } => render::backlinks(task, json),
         Cmd::Prune { before, dry_run } => prune::prune(before, dry_run),
+        Cmd::Merge { theirs, prefer, dry_run, git } => merge::merge(theirs, prefer, dry_run, git),
+        Cmd::GitSetup => merge::git_setup(),
+        Cmd::MergeDriver { ours, theirs } => merge::merge_driver(ours, theirs),
         Cmd::Config { key, value } => commands::config(key, value),
         Cmd::CatObject { hash } => commands::cat_object(hash),
         Cmd::HashObject { file } => commands::hash_object(file),

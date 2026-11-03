@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "15e54c4d3b204b8a0682b0937566f7e62211a0d85d269d1efac1e8ca04adf16e",
+  "snapshot": "613a6645acf45e1d7797fd6bb85e1892cfd99f59b158044c92343f57df927943",
+  "time": "2026-11-03T03:43:26Z",
+  "author": "Claude (side session)",
+  "message": "link 2.1 -> 2.3: the log is regenerated from the merged history",
+  "subjects": [
+    "t21",
+    "t23"
+  ],
+  "forced": false
+}

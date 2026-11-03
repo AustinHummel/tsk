@@ -48,13 +48,16 @@ fn load(store: Store, lock: Option<Lock>) -> Result<Ctx> {
 
 /// Read-only: no lock. Readers see HEAD and its snapshot, both immutable.
 pub(crate) fn open() -> Result<Ctx> {
-    load(store_open()?, None)
+    let store = store_open()?;
+    crate::merge::settle_pending(&store, false)?;
+    load(store, None)
 }
 
 /// For a change: take the lock first, then load, so the plan in memory is
 /// the one the event will follow.
 pub(crate) fn open_rw() -> Result<Ctx> {
     let store = store_open()?;
+    crate::merge::settle_pending(&store, true)?;
     let lock = store.lock()?;
     load(store, Some(lock))
 }

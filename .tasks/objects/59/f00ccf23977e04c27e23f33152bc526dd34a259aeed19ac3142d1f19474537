@@ -1,0 +1,13 @@
+req
+{
+  "id": "r16",
+  "from": {
+    "kind": "task",
+    "id": "t25"
+  },
+  "on": "t24",
+  "reason": "release after tests pass",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T03:43:26Z"
+}

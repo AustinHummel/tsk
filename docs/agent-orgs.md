@@ -94,11 +94,20 @@ command refused with "locked by another tsk" after the timeout means a
 process died holding the lock or something is very slow; the message says
 who held it and how to clear it.
 
-Keep one store that every writer reaches. Two copies of a store that both
-gain events cannot be merged yet (a store has one line of history, like a
-branch without merge). In an org that works in git worktrees, point every
-session at the store in the main checkout rather than at its worktree's
-copy, and commit the store from there.
+Sessions on one machine can share one store (`--store` at the main
+checkout). Sessions that must carry their own copy, in a worktree or on
+another workstation, let git bring the copies together: run `tsk
+git-setup` once per machine, and a `git pull` or branch merge records the
+other copy's HEAD as pending; the next tsk command replays both sides'
+events since the fork in one chronological order, so every copy converges
+on the same ids and the same plan, renumbering any colliding ids and
+reporting the map. A field changed differently on both sides stops the
+replay until someone chooses `--prefer ours` or `--prefer theirs`; a leaf
+whose status moved on both sides is reported, the later event standing. For an
+agent, the rule is: after a pull, run `tsk ready` (which settles any
+pending merge) before writing, and treat a refused write as a conflict to
+read with `tsk merge --dry-run` and resolve. Commit the store after the
+merge like any other change.
 
 ## What the store costs, and pruning
 

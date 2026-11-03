@@ -1,0 +1,13 @@
+req
+{
+  "id": "r12",
+  "from": {
+    "kind": "task",
+    "id": "t22"
+  },
+  "on": "t21",
+  "reason": "the driver only records a pending merge the engine performs",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T03:43:26Z"
+}

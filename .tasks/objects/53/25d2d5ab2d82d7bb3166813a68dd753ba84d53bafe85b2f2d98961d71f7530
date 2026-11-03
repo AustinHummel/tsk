@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "ec9933d0f83caba405a26f1c9521af38e04efdf58e204afe364af2a7e775c1fa",
+  "snapshot": "5f339e50e08ef63b048c6a591c668e0b46865813126534ebb0134fb71e623dec",
+  "time": "2026-11-03T03:43:26Z",
+  "author": "Claude (side session)",
+  "message": "add Merge divergent stores (0.3)",
+  "subjects": [
+    "t20"
+  ],
+  "forced": false
+}

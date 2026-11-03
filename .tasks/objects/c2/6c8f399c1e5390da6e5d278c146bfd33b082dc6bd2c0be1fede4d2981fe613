@@ -1,0 +1,9 @@
+task
+{
+  "id": "t20",
+  "title": "Merge divergent stores (0.3)",
+  "parent": null,
+  "seq": 20,
+  "body": "",
+  "types": []
+}

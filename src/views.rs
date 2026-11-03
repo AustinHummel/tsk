@@ -556,7 +556,7 @@ pub fn log(task: Option<String>, limit: Option<usize>, json: bool) -> Result<()>
 // ----- diff ----------------------------------------------------------------
 
 /// The store's HEAD as committed in git at `rev`, read with `git show`.
-fn git_head_at(store: &Store, rev: &str) -> Result<Hash> {
+pub(crate) fn git_head_at(store: &Store, rev: &str) -> Result<Hash> {
     let root = store.root();
     let run = |args: &[&str]| -> Result<String> {
         let out = std::process::Command::new("git")
@@ -573,6 +573,7 @@ fn git_head_at(store: &Store, rev: &str) -> Result<Hash> {
     let prefix = run(&["rev-parse", "--show-prefix"])?;
     let path = format!("{}{}/HEAD", prefix, crate::store::DIR);
     let h = run(&["show", &format!("{}:{}", rev, path)]).with_context(|| format!("the store's HEAD is not committed at {}", rev))?;
+    let h = h.lines().next().unwrap_or("").trim().to_string();
     if h.len() != 64 {
         bail!("{}:{} does not hold an event hash", rev, path);
     }
@@ -708,19 +709,21 @@ fn task_changes(a: &Task, b: &Task) -> Vec<&'static str> {
 fn diff_plan(c: &Ctx, old_h: &Hash, new_h: &Hash, basis: &str, json: bool) -> Result<()> {
     let (old, old_d) = plan_at(&c.store, old_h)?;
     let (new, new_d) = plan_at(&c.store, new_h)?;
-    // Events from new back to (not including) old.
-    let mut events: Vec<(Hash, Event)> = Vec::new();
-    let mut reached = false;
-    for (h, e) in c.store.history_from(Some(new_h.clone()))? {
-        if h == *old_h {
-            reached = true;
-            break;
-        }
-        events.push((h, e));
-    }
-    if !reached {
-        bail!("{} is not an ancestor of {}", &old_h[..10], &new_h[..10]);
-    }
+    // Events on the new line that the old line did not hold. When old is an
+    // ancestor, that is the events after it; after a merge rewrote the line,
+    // an event is held if the old line had it or its original.
+    let old_have: BTreeSet<Hash> = c
+        .store
+        .history_from(Some(old_h.clone()))?
+        .into_iter()
+        .flat_map(|(h, e)| std::iter::once(h).chain(e.replayed_from))
+        .collect();
+    let mut events: Vec<(Hash, Event)> = c
+        .store
+        .history_from(Some(new_h.clone()))?
+        .into_iter()
+        .filter(|(h, e)| !old_have.contains(h) && !e.replayed_from.as_ref().map(|r| old_have.contains(r)).unwrap_or(false))
+        .collect();
     events.reverse();
     let label = |p: &Plan, id: &str| p.label(id);
     let mut changes: Vec<serde_json::Value> = Vec::new();

@@ -1,0 +1,13 @@
+req
+{
+  "id": "r13",
+  "from": {
+    "kind": "task",
+    "id": "t23"
+  },
+  "on": "t21",
+  "reason": "the log is regenerated from the merged history",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T03:43:26Z"
+}

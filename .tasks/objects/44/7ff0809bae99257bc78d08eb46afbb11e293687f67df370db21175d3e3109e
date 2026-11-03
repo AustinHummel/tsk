@@ -1,0 +1,10 @@
+task
+{
+  "id": "t20",
+  "title": "Merge divergent stores (0.3)",
+  "parent": null,
+  "seq": 20,
+  "body": "",
+  "types": [],
+  "narrative": "The engine (1) is the merge; (2) is how git hands it a merge to do; (3) keeps the human record consistent through it; (4) proves it; (5) ships it."
+}

@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "9f556ecc281613097b7da554f088dd6852af2defe298fb7620760efc1d58960f",
+  "snapshot": "e036c36323c74d4b4f932e54ef0217ced796194682249853a79adf8141f07b90",
+  "time": "2026-11-03T03:43:26Z",
+  "author": "Claude (side session)",
+  "message": "link 2.2 -> 2.4: tests exercise the driver",
+  "subjects": [
+    "t22",
+    "t24"
+  ],
+  "forced": false
+}

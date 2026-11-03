@@ -1,0 +1,13 @@
+req
+{
+  "id": "r14",
+  "from": {
+    "kind": "task",
+    "id": "t24"
+  },
+  "on": "t21",
+  "reason": "tests exercise the engine",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T03:43:26Z"
+}

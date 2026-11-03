@@ -1,0 +1,9 @@
+task
+{
+  "id": "t21",
+  "title": "Replay engine",
+  "parent": "t20",
+  "seq": 21,
+  "body": "Canonical replay, decided while building: a one-sided rebase left two copies disagreeing about which task is which id, so both sides' events since the fork are replayed in one chronological order (each side's own order kept, ties by original hash). Both copies then hold identical events, ids and snapshots. Our own events may be rewritten to take their place; diff finds a committed HEAD through replayed_from. Conflicts are per field; --prefer picks the side.",
+  "types": []
+}

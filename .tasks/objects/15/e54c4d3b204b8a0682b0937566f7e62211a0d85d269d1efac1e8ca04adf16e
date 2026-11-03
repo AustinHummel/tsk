@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "01c5c7e633f8344db56a77393d34003249a8e51fe4edbad2b50cb2111ea94a7f",
+  "snapshot": "deff884770e7184d28e485b767bc5d9b2b1c67e64bcf7cf34e413997292724b3",
+  "time": "2026-11-03T03:43:26Z",
+  "author": "Claude (side session)",
+  "message": "link 2.1 -> 2.2: the driver only records a pending merge the engine performs",
+  "subjects": [
+    "t21",
+    "t22"
+  ],
+  "forced": false
+}

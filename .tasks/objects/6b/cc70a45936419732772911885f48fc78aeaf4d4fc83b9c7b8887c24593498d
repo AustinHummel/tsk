@@ -1,0 +1,13 @@
+req
+{
+  "id": "r11",
+  "from": {
+    "kind": "person",
+    "id": "Austin"
+  },
+  "on": "t20",
+  "reason": "other workstations and worktrees will each carry a copy of the store and git must bring them back together",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-03T03:43:26Z"
+}

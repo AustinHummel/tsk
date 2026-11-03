@@ -92,10 +92,12 @@ Process (porcelain):
 | `render [--dir d]` | One markdown page per task, plus an outline, for a vault to browse and link. |
 | `backlinks <task>` | Markdown files in the project that link to the task's page. |
 | `prune [--before E] [--dry-run]` | Drop old snapshots; every event and the log stay. |
+| `merge [theirs] [--prefer ours\|theirs] [--dry-run]` | Replay another copy's events onto ours. |
+| `git-setup` | Register the git merge driver for `.tasks/HEAD` (once per machine). |
 | `config [key [value]]` | `author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`. |
 
 Plumbing: `cat-object <hash>`, `hash-object [file]`, `ls-snapshot [event]`,
-`rev-list`. Every view takes `--json`.
+`rev-list`, `merge-driver`. Every view takes `--json`.
 
 Tasks are addressed by id (`t7`), outline number (`1.2.4`), or exact
 title when it names one task. Ids and numbers are fixed: nothing is ever
@@ -201,9 +203,37 @@ rendered pages in step, render before committing, for example in
 tsk render >/dev/null && git add tasks
 ```
 
-A store has one line of history: two checkouts that both add events
-diverge, and there is no merge yet. Keep one store that every writer
-reaches (`--store`), rather than a copy per branch.
+## Merging copies of a store
+
+Two checkouts (a worktree, another workstation) that both add events
+diverge. `tsk merge <their HEAD>` brings them back to one line by
+replaying every event since the fork, from both sides, in one canonical
+order: chronological, each side's own order kept, ties by the original
+event's hash. Each event is diffed against its own parent and applied as
+a patch, becoming a new event with the same kind, time, author and
+message; `replayed_from` names the original, which is how a copy knows
+what it already holds. Because the order is the same from either copy,
+two copies that merge each other converge on the same events, the same
+ids and the same snapshot, and have nothing left to exchange. Our own
+events since the fork may get new hashes to take their chronological
+place; `tsk diff` still finds the committed HEAD through `replayed_from`.
+Ids that collide are renumbered in that order, on whichever side comes
+later, and the map is reported (`ours t20 is now t21`; outline numbers
+follow). A field changed differently on both sides is a conflict: nothing
+is written, and `--prefer ours` or `--prefer theirs` decides. A leaf with
+status events on both sides is reported; the later event stands.
+`--dry-run` shows all of this without writing.
+
+Git carries the objects (add-only, never a conflict); only `HEAD` can
+conflict. Run `tsk git-setup` once per machine: it registers a merge
+driver that resolves a `HEAD` conflict by recording the other side as
+pending (`merge <hash>` on HEAD's second line), so `git pull` never
+blocks, and the next tsk command performs the merge (a read warns and
+shows our side if it conflicts; a write refuses until `tsk merge
+--prefer` settles it). Without the driver, `tsk merge` with no arguments
+reads the conflict markers git left in `HEAD`. The log merges as a union
+and is rebuilt from history after a merge, or whenever it is found out of
+step. After either path, commit `.tasks/` as usual.
 
 `tsk prune --before <event>` removes the snapshots of older events and the
 objects only they reach, so a long history stays small; every event and

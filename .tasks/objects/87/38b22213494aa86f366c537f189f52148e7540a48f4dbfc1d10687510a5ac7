@@ -1,0 +1,9 @@
+task
+{
+  "id": "t21",
+  "title": "Replay engine",
+  "parent": "t20",
+  "seq": 21,
+  "body": "`tsk merge <their HEAD>`: find the fork point (the newest event both chains share), diff each of their later events against its parent snapshot, apply each as a patch onto our plan in order, renumber ids that collide and report the map, refuse on a field changed on both sides unless `--prefer ours|theirs`. Writes one replayed event per original (same kind, time, author, message; subjects mapped; the original's hash recorded) and a closing `merged` event. All or nothing.",
+  "types": []
+}

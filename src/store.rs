@@ -21,12 +21,33 @@ const GITIGNORE: &str = "# transient files of a running tsk\nlock\nlock.broken-*
 
 /// Objects are named by the hash of their bytes: git must never convert
 /// their line endings. The log stays diffable.
-const GITATTRIBUTES: &str = "* -text\nlog text eol=lf\n";
+pub const GITATTRIBUTES: &str = "* -text\nlog text eol=lf merge=union\nHEAD merge=tsk\n";
 
 const LOG_HEADER: &str = "# tsk event log: one line per event, oldest first. time  event  kind  message  [tasks]  -- author\n";
 
 pub struct Store {
     pub dir: PathBuf,
+}
+
+/// What `.tasks/HEAD` says.
+#[derive(Debug, Default, Clone)]
+pub struct HeadFile {
+    /// Our latest event.
+    pub ours: Option<Hash>,
+    /// A line of history still to merge into ours (`merge <hash>`).
+    pub pending: Option<Hash>,
+    /// Git left conflict markers: this is the other side's HEAD.
+    pub conflicted: bool,
+    pub theirs: Option<Hash>,
+    pub theirs_pending: Option<Hash>,
+}
+
+impl HeadFile {
+    /// Whatever other line of history is waiting to be merged, however it
+    /// got here.
+    pub fn to_merge(&self) -> Option<Hash> {
+        self.pending.clone().or_else(|| self.theirs.clone())
+    }
 }
 
 /// Holds `.tasks/lock` until dropped.
@@ -264,13 +285,84 @@ impl Store {
 
     // ----- HEAD ----------------------------------------------------------
 
-    pub fn head(&self) -> Result<Option<Hash>> {
+    /// The HEAD file, parsed. Normally one line, the latest event. It may
+    /// carry a second line `merge <hash>`: another line of history to replay
+    /// (written by the git merge driver). Or git may have left conflict
+    /// markers in it, with ours above and theirs below.
+    pub fn read_head_file(&self) -> Result<HeadFile> {
         let p = self.dir.join("HEAD");
         if !p.exists() {
-            return Ok(None);
+            return Ok(HeadFile::default());
         }
-        let s = fs::read_to_string(p)?.trim().to_string();
-        Ok(if s.is_empty() { None } else { Some(s) })
+        let text = fs::read_to_string(p)?;
+        let mut hf = HeadFile::default();
+        let mut side = 0; // 0 ours (or no conflict), 1 theirs
+        for line in text.lines() {
+            let line = line.trim();
+            if line.starts_with("<<<<<<<") {
+                side = 0;
+                hf.conflicted = true;
+                continue;
+            }
+            if line.starts_with("=======") && hf.conflicted {
+                side = 1;
+                continue;
+            }
+            if line.starts_with(">>>>>>>") {
+                side = 2;
+                continue;
+            }
+            if line.is_empty() || side == 2 {
+                continue;
+            }
+            if let Some(h) = line.strip_prefix("merge ") {
+                if side == 0 {
+                    hf.pending = Some(h.trim().to_string());
+                } else {
+                    hf.theirs_pending = Some(h.trim().to_string());
+                }
+            } else if side == 0 && hf.ours.is_none() {
+                hf.ours = Some(line.to_string());
+            } else if side == 1 && hf.theirs.is_none() {
+                hf.theirs = Some(line.to_string());
+            }
+        }
+        Ok(hf)
+    }
+
+    /// The latest event on our line of history.
+    pub fn head(&self) -> Result<Option<Hash>> {
+        Ok(self.read_head_file()?.ours)
+    }
+
+    /// Write HEAD with a merge still to perform.
+    pub fn set_head_pending(&self, ours: &str, theirs: &str) -> Result<()> {
+        let tmp = self.dir.join("HEAD.tmp");
+        fs::write(&tmp, format!("{}\nmerge {}\n", ours, theirs))?;
+        fs::rename(tmp, self.dir.join("HEAD"))?;
+        Ok(())
+    }
+
+    /// Rewrite `.tasks/log` from the whole history, oldest first, with the
+    /// plan's current numbering. Used after a merge, and whenever the log
+    /// is found out of step with HEAD.
+    pub fn rebuild_log(&self, history: &[(Hash, Event)], plan: &crate::plan::Plan) -> Result<()> {
+        let mut s = String::from(LOG_HEADER);
+        for (h, e) in history.iter().rev() {
+            s.push_str(&crate::commit::log_line(h, e, plan));
+            s.push('\n');
+        }
+        let tmp = self.dir.join("log.tmp");
+        fs::write(&tmp, s)?;
+        fs::rename(tmp, self.dir.join("log"))?;
+        Ok(())
+    }
+
+    /// The event named by the last line of the log, if any.
+    pub fn last_logged(&self) -> Option<String> {
+        let text = fs::read_to_string(self.dir.join("log")).ok()?;
+        let line = text.lines().rev().find(|l| !l.starts_with('#') && !l.trim().is_empty())?;
+        line.split_whitespace().nth(1).map(|s| s.to_string())
     }
 
     pub fn set_head(&self, hash: &str) -> Result<()> {
@@ -370,11 +462,6 @@ impl Store {
     }
 
     // ----- log -----------------------------------------------------------
-
-    /// Whether `.tasks/log` has no event lines yet.
-    pub fn log_is_empty(&self) -> bool {
-        fs::read_to_string(self.dir.join("log")).map(|s| !s.lines().any(|l| !l.starts_with('#') && !l.trim().is_empty())).unwrap_or(true)
-    }
 
     /// Append one line to `.tasks/log`. Called under the lock.
     pub fn append_log(&self, line: &str) -> Result<()> {

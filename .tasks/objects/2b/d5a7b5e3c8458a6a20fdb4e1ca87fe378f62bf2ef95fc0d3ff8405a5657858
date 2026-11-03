@@ -1,0 +1,9 @@
+task
+{
+  "id": "t23",
+  "title": "Log self-heal",
+  "parent": "t20",
+  "seq": 23,
+  "body": "`.tasks/log` merges in git as a union; after a merge, and whenever the last log line does not name the previous HEAD, tsk regenerates the log from history.",
+  "types": []
+}
