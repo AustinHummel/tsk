@@ -32,8 +32,11 @@ fn parallel_writers_never_lose_an_event() {
     assert!(!ok && text.contains("locked by another tsk"), "{}", text);
     // One whose process has exited (a crash) is broken at once; one too old
     // to tell is broken after `lock.stale`.
-    // (pid 1 is init on Unix and alive; this one is beyond any OS's range.)
-    std::fs::write(p.dir.join(".tasks/lock"), "pid 4000000000\n").unwrap();
+    // A process that has just exited: dead by construction on every OS.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_tsk")).arg("--version").stdout(std::process::Stdio::null()).spawn().unwrap();
+    let dead_pid = child.id();
+    child.wait().unwrap();
+    std::fs::write(p.dir.join(".tasks/lock"), format!("pid {}\n", dead_pid)).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(250));
     let (ok, text) = p.run_from(&p.dir, &[], &["add", "after crash"]);
     assert!(ok && text.contains("its process has exited"), "{}", text);
