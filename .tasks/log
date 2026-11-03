@@ -77,3 +77,7 @@
 2026-11-03T10:57:05Z  afea0d3bcb  applied          apply release to 4.6  [4.6 4.6.1 4.6.2 4.6.3 4.6.4 4.6.5]  -- Claude (side session)
 2026-11-03T10:57:44Z  f5146f5d25  dropped          drop 4.6.5: no command was added this round; the only new flag, --chdir, is the long form of -C  [4.6.5]  -- Claude (side session)
 2026-11-03T10:57:44Z  06c89288fb  completed        complete 4.6.1  [4.6.1]  -- Claude (side session)
+2026-11-03T11:00:14Z  155ce3fa51  completed        complete 4.6.2  [4.6.2]  -- Claude (side session)
+2026-11-03T11:00:14Z  dfb931d86a  completed        complete 4.6.3  [4.6.3]  -- Claude (side session)
+2026-11-03T11:00:14Z  ff92103b7f  set              doc 4.6.4 +https://github.com/AustinHummel/tsk/releases/tag/v0.4.1  [4.6.4]  -- Claude (side session)
+2026-11-03T11:00:14Z  cb27e044dd  completed        complete 4.6.4  [4.6.4]  -- Claude (side session)
