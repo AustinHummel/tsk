@@ -65,15 +65,10 @@ pub fn write(store: &Store, plan: &Plan, c: Commit) -> Result<Hash> {
         replayed_from: None,
     };
     let hash = store.write_object(ObjectType::Event, &ev)?;
-    // The log must end with the event HEAD names. A store from before the
-    // log existed, or one whose log git merged as a union, gets its log
-    // rewritten from history once.
-    let in_step = match (store.last_logged(), store.head()?) {
-        (Some(last), Some(head)) => head.starts_with(&last),
-        (None, None) => true,
-        _ => false,
-    };
-    if !in_step {
+    // A store from before the log existed gets its history written once.
+    // Otherwise the log is only ever appended here: a rebuild (merge,
+    // reset) replaces the file, which must not race an append.
+    if store.last_logged().is_none() && store.head()?.is_some() {
         let history = store.history()?;
         store.rebuild_log(&history, plan)?;
     }
