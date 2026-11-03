@@ -474,8 +474,12 @@ impl Store {
         Ok(self.read_head_file()?.ours)
     }
 
-    /// Write HEAD with a merge still to perform.
+    /// Write HEAD with a merge still to perform, but only while HEAD is
+    /// still at `ours`: never put a value back over one that moved on.
     pub fn set_head_pending(&self, ours: &str, theirs: &str) -> Result<()> {
+        if self.head()?.as_deref() != Some(ours) {
+            return Ok(());
+        }
         let tmp = self.dir.join(format!("HEAD.tmp{}", std::process::id()));
         fs::write(&tmp, format!("{}\nmerge {}\n", ours, theirs))?;
         fs::rename(tmp, self.dir.join("HEAD"))?;
@@ -527,16 +531,26 @@ impl Store {
         }
     }
 
-    /// Move HEAD from its current event to `hash`, claiming the current
-    /// event first, and record the move in `.tasks/reflog` so any earlier
-    /// state can be found and returned to with `tsk reset`.
+    /// Advance HEAD from `from`, the event the caller built on, to `to`,
+    /// claiming `from` first; record the move in `.tasks/reflog` so any
+    /// earlier state can be found and returned to with `tsk reset`. The
+    /// claim is on the caller's parent, never on HEAD as re-read now: if
+    /// HEAD has moved on since the caller read it, the claim fails and
+    /// nothing is overwritten.
+    pub fn advance_head(&self, from: Option<&str>, to: &str, what: &str) -> Result<()> {
+        if let Some(f) = from {
+            self.claim(f)?;
+        }
+        self.set_head(to)?;
+        self.reflog_append(from, to, what)
+    }
+
+    /// Move HEAD from wherever it is now (read under the lock) to `hash`.
+    /// For deliberate moves such as `reset`, not for commits, which know
+    /// their parent.
     pub fn move_head(&self, hash: &str, what: &str) -> Result<()> {
         let old = self.head()?;
-        if let Some(o) = &old {
-            self.claim(o)?;
-        }
-        self.set_head(hash)?;
-        self.reflog_append(old.as_deref(), hash, what)
+        self.advance_head(old.as_deref(), hash, what)
     }
 
     /// One line per HEAD move, oldest first: `old new time\tauthor\twhat`.

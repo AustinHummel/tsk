@@ -391,7 +391,7 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
         out.replayed = their_seg.iter().map(|i| (i.hash.clone(), i.hash.clone())).collect();
         if !dry_run {
             store.read_snapshot(&store.read_object::<Event>(ObjectType::Event, theirs)?.snapshot)?;
-            store.move_head(theirs, &format!("merge {} (fast-forward)", &theirs[..10]))?;
+            store.advance_head(Some(&ours), theirs, &format!("merge {} (fast-forward)", &theirs[..10]))?;
             let plan = Plan::load(store, &store.head_snapshot()?)?;
             let history = store.history()?;
             store.rebuild_log(&history, &plan)?;
@@ -569,9 +569,6 @@ pub fn merge(theirs: Option<String>, prefer: Option<String>, dry_run: bool, git:
     };
     let ours = hf.ours.clone().ok_or_else(|| anyhow!("no HEAD"))?;
     let was_pending = hf.conflicted || hf.pending.is_some();
-    if was_pending && !dry_run {
-        store.set_head(&ours)?;
-    }
     let out = perform(&store, &theirs, prefer, dry_run)?;
     if !out.conflicts.is_empty() {
         if was_pending && !dry_run {
@@ -608,7 +605,6 @@ pub fn settle_pending(store: &Store, writing: bool) -> Result<()> {
     // Re-read under the lock: another process may have settled it.
     let hf = store.read_head_file()?;
     let Some(theirs) = hf.to_merge() else { return Ok(()) };
-    store.set_head(&ours)?;
     let out = perform(store, &theirs, None, false)?;
     if !out.conflicts.is_empty() {
         store.set_head_pending(&ours, &theirs)?;
