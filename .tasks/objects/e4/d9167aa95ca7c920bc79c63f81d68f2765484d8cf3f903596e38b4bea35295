@@ -1,0 +1,9 @@
+task
+{
+  "id": "t59",
+  "title": "Onboard the repo for agent maintenance",
+  "parent": null,
+  "seq": 59,
+  "body": "An entry contract (CLAUDE.md), an architecture skill (.claude/skills/tsk-architecture) and docs/architecture.md, a README pointer, and a stranger validation by a fresh agent given only the docs. Docs and registration only; no change to code or behaviour. The rules Austin has not set are marked proposed in CLAUDE.md for his OK. Tracked in the org as its task 1.4 (t5).",
+  "types": []
+}

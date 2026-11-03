@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "a700182e805a6950f88ea1fedb4c20327a8812b91b87ffc2082451a42cd395a4",
+  "snapshot": "a6c72253fe122204075aa1ea1167562d5221a8cb745248d216c0b4599c2afd24",
+  "time": "2026-11-03T22:08:27Z",
+  "author": "fable-5.1 tsk-onboarding 2026-11-03",
+  "message": "add Onboard the repo for agent maintenance",
+  "subjects": [
+    "t59"
+  ],
+  "forced": false
+}

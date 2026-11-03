@@ -69,7 +69,7 @@ Process (porcelain):
 | Command | What it does |
 |---|---|
 | `init` | Create `.tasks/` here. |
-| `add <title> [--by "Who: why"] [-b body]` | A root task. Children only come from `breakdown` or `amend`. |
+| `add <title> [--by "Who: why"] [-b body] [--priority p] [--due d]` | A root task. Children only come from `breakdown` or `amend`. Priority and due are free text, set only here. |
 | `breakdown <task> [-F file]` | Children, narrative, and the disposition of every requirement, in one event. `--template` prints the file to fill in; with no `-F` it opens in `$EDITOR`. |
 | `amend <parent> <title> --narrative "..."` | Add a child to a broken-down parent along with the scope it covers. |
 | `edit <task> [-b body \| -F file] [--title] [--narrative]` | Change the card. |
@@ -292,5 +292,13 @@ its parent is a loop like any other; ready = leaf, not tentative, no loop,
 every blocking requirement (own or inherited) satisfied. A field set on a
 task is inherited by everything under it for `--where`.
 
-This repository plans itself: `tsk log` in a clone shows how 0.2 was
-built, and [tasks/](tasks/README.md) is its rendered plan.
+This repository plans itself: `tsk log` in a clone shows how every
+version from 0.2 on was built, and [tasks/](tasks/README.md) is its
+rendered plan.
+
+## Maintaining it
+
+Start with [CLAUDE.md](CLAUDE.md): the constraints a change must keep,
+how to build and verify, how the repo tracks its own work, and the
+commit, push and release rules. The design is in
+[docs/architecture.md](docs/architecture.md).

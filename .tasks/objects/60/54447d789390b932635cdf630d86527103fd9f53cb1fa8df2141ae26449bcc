@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Completed",
+  "parent": "27a983e9f52c83aef79631032d239726eb6b304caab90e70d2d93a80d08e3ab4",
+  "snapshot": "e0d204c88b3d348ac4f718aedf57ccf667ad611d469254d2a910da5c5eedce09",
+  "time": "2026-11-03T22:14:16Z",
+  "author": "fable-5.1 tsk-onboarding 2026-11-03",
+  "message": "complete 6",
+  "subjects": [
+    "t59"
+  ],
+  "forced": false
+}

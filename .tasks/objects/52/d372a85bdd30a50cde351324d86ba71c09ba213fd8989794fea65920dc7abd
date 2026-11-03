@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Started",
+  "parent": "233ca046f0c099b04b7d50db88b545825f1500163147b8f1bee8a7eb4186d534",
+  "snapshot": "a6c72253fe122204075aa1ea1167562d5221a8cb745248d216c0b4599c2afd24",
+  "time": "2026-11-03T22:08:27Z",
+  "author": "fable-5.1 tsk-onboarding 2026-11-03",
+  "message": "start 6",
+  "subjects": [
+    "t59"
+  ],
+  "forced": false
+}

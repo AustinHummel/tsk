@@ -1,0 +1,13 @@
+req
+{
+  "id": "r31",
+  "from": {
+    "kind": "person",
+    "id": "Austin, 2026-11-03"
+  },
+  "on": "t59",
+  "reason": "the org maintains tsk ('Org maintains it'), so a fresh agent must be able to work here safely",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-03T22:08:27Z"
+}

@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Set",
+  "parent": "52d372a85bdd30a50cde351324d86ba71c09ba213fd8989794fea65920dc7abd",
+  "snapshot": "da90e87951296c5314aa8665104e3230081f1c7fd4f13d922b5bfa61899aa83b",
+  "time": "2026-11-03T22:08:27Z",
+  "author": "fable-5.1 tsk-onboarding 2026-11-03",
+  "message": "doc 6 +CLAUDE.md",
+  "subjects": [
+    "t59"
+  ],
+  "forced": false
+}

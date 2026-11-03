@@ -94,3 +94,9 @@
 2026-11-03T13:47:18Z  6bf81e4640  completed        complete 5.5.3  [5.5.3]  -- Claude (side session)
 2026-11-03T13:47:18Z  371ae478e6  set              doc 5.5.4 +https://github.com/AustinHummel/tsk/releases/tag/v0.4.2  [5.5.4]  -- Claude (side session)
 2026-11-03T13:47:18Z  a700182e80  completed        complete 5.5.4  [5.5.4]  -- Claude (side session)
+2026-11-03T22:08:27Z  233ca046f0  created          add Onboard the repo for agent maintenance  [6]  -- fable-5.1 tsk-onboarding 2026-11-03
+2026-11-03T22:08:27Z  52d372a85b  started          start 6  [6]  -- fable-5.1 tsk-onboarding 2026-11-03
+2026-11-03T22:08:27Z  db938ce717  set              doc 6 +CLAUDE.md  [6]  -- fable-5.1 tsk-onboarding 2026-11-03
+2026-11-03T22:08:27Z  f11385335f  set              doc 6 +docs/architecture.md  [6]  -- fable-5.1 tsk-onboarding 2026-11-03
+2026-11-03T22:14:16Z  27a983e9f5  set              doc 6 +.claude/skills/tsk-architecture/SKILL.md  [6]  -- fable-5.1 tsk-onboarding 2026-11-03
+2026-11-03T22:14:16Z  6054447d78  completed        complete 6  [6]  -- fable-5.1 tsk-onboarding 2026-11-03
