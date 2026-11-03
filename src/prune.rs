@@ -24,7 +24,7 @@ pub fn prune(before: Option<String>, dry_run: bool) -> Result<()> {
     let mut shallow = 0usize;
     let mut past_cutoff = false;
     let mut found_cutoff = cutoff.is_none();
-    for (h, ev) in &c.history {
+    for (h, ev) in c.history() {
         keep.insert(h.clone());
         if past_cutoff {
             shallow += 1;

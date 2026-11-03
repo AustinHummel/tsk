@@ -1,0 +1,9 @@
+task
+{
+  "id": "t40",
+  "title": "Dead-lock detection",
+  "parent": "t36",
+  "seq": 40,
+  "body": "A lock whose process has exited on this machine is broken at once (tasklist on Windows, kill -0 elsewhere), not after a minute.",
+  "types": []
+}

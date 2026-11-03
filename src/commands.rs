@@ -18,10 +18,20 @@ use std::sync::OnceLock;
 pub(crate) struct Ctx {
     pub store: Store,
     pub plan: Plan,
-    pub history: Vec<(Hash, Event)>,
+    /// Per-leaf statuses HEAD implies (from the cache, or the history).
+    pub leaf: std::collections::HashMap<TaskId, Status>,
     pub derived: Derived,
+    /// The whole event history, read only by the commands that show it.
+    history: OnceLock<Vec<(Hash, Event)>>,
     /// Held for the life of a writing command.
     _lock: Option<Lock>,
+}
+
+impl Ctx {
+    /// Every event, newest first. Read on first use.
+    pub fn history(&self) -> &[(Hash, Event)] {
+        self.history.get_or_init(|| self.store.history().unwrap_or_default())
+    }
 }
 
 static STORE: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -39,11 +49,12 @@ pub(crate) fn store_open() -> Result<Store> {
 }
 
 fn load(store: Store, lock: Option<Lock>) -> Result<Ctx> {
-    let snap = store.head_snapshot()?;
-    let plan = Plan::load(&store, &snap)?;
-    let history = store.history()?;
-    let derived = Derived::compute(&plan, &history);
-    Ok(Ctx { store, plan, history, derived, _lock: lock })
+    let (plan, leaf) = match store.head_event()? {
+        None => (Plan::default(), std::collections::HashMap::new()),
+        Some((h, ev)) => (store.load_plan(&ev.snapshot)?, store.leaf_statuses_at(&h)?),
+    };
+    let derived = Derived::compute(&plan, &leaf);
+    Ok(Ctx { store, plan, leaf, derived, history: OnceLock::new(), _lock: lock })
 }
 
 /// Read-only: no lock. Readers see HEAD and its snapshot, both immutable.
@@ -383,8 +394,7 @@ fn add_req(c: &mut Ctx, from: Requirer, on: TaskId, reason: String, blocking: bo
 }
 
 fn note_loops(c: &Ctx, before: usize) -> Result<()> {
-    let history = c.store.history()?;
-    let d = Derived::compute(&c.plan, &history);
+    let d = Derived::compute(&c.plan, &c.leaf);
     if d.loops.len() > before {
         say("note: this forms a dependency loop; see `tsk loops`");
     }
@@ -896,8 +906,11 @@ fn transition(tasks: Vec<String>, force: bool, kind: EventKind) -> Result<()> {
     done(&c.store, &h, &format!("{}{}: {}", if !problems.is_empty() { "FORCED " } else { "" }, kind.name(), labels.join("; ")));
     if completing {
         // Say what just became ready.
-        let history = c.store.history()?;
-        let d = Derived::compute(&c.plan, &history);
+        let mut leaf = c.leaf.clone();
+        if let Ok(ev) = c.store.read_object::<Event>(ObjectType::Event, &h) {
+            crate::state::apply_event(&mut leaf, &ev);
+        }
+        let d = Derived::compute(&c.plan, &leaf);
         let newly: Vec<TaskId> = d.ready(&c.plan).into_iter().filter(|t| !c.derived.is_ready(&c.plan, t)).collect();
         if !newly.is_empty() {
             say("now ready:");

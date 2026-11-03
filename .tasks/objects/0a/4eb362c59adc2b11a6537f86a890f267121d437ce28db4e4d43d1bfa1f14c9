@@ -1,0 +1,10 @@
+task
+{
+  "id": "t36",
+  "title": "Speed, and two bugs from a trial (0.4.1)",
+  "parent": null,
+  "seq": 36,
+  "body": "",
+  "types": [],
+  "narrative": "Two speed fixes (1, 2), two bugs (3, 4), the tone pass Austin asked for (5), and the release (6)."
+}

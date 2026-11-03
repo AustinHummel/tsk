@@ -1,0 +1,13 @@
+req
+{
+  "id": "r24",
+  "from": {
+    "kind": "task",
+    "id": "t38"
+  },
+  "on": "t37",
+  "reason": "the cache stores the indexed plan",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T10:57:05Z"
+}

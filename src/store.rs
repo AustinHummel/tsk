@@ -8,7 +8,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 pub const DIR: &str = ".tasks";
 
 /// What is ignored inside the store when it is committed with git.
-const GITIGNORE: &str = "# transient files of a running tsk, and its local reflog\nlock\nlock.broken-*\nHEAD.tmp\nlog.tmp\n*.EDIT\n*.tmp\nreflog\n";
+const GITIGNORE: &str = "# transient files of a running tsk, its local reflog, and its disposable cache\nlock\nlock.broken-*\nHEAD.tmp\nlog.tmp\n*.EDIT\n*.tmp\nreflog\ncache/\n";
 
 /// Objects are named by the hash of their bytes: git must never convert
 /// their line endings. The log stays diffable.
@@ -37,6 +37,31 @@ pub struct ReflogEntry {
     pub time: String,
     pub author: String,
     pub what: String,
+}
+
+/// Whether the process named in a lock file (`pid N`) is known to have
+/// exited on this machine. False when it is alive, or when that cannot be
+/// told (no pid line, a lock from another machine, no way to ask).
+fn lock_holder_exited(holder: &str) -> bool {
+    let Some(pid) = holder.lines().find_map(|l| l.strip_prefix("pid ")).and_then(|p| p.trim().parse::<u32>().ok()) else { return false };
+    if pid == std::process::id() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        let out = std::process::Command::new("tasklist").args(["/FI", &format!("PID eq {}", pid), "/NH", "/FO", "CSV"]).output();
+        match out {
+            Ok(o) if o.status.success() => !String::from_utf8_lossy(&o.stdout).contains(&format!("\"{}\"", pid)),
+            _ => false,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        match std::process::Command::new("kill").args(["-0", &pid.to_string()]).output() {
+            Ok(o) => !o.status.success(),
+            Err(_) => false,
+        }
+    }
 }
 
 /// What `.tasks/HEAD` says.
@@ -293,6 +318,82 @@ impl Store {
         Ok(())
     }
 
+    // ----- cache ---------------------------------------------------------
+    //
+    // `.tasks/cache/` holds memos of pure functions of the store, keyed by
+    // the content hash they derive from, so they can never be stale: the
+    // plan a snapshot loads to, and the leaf statuses a HEAD implies. It is
+    // disposable (delete it any time), never committed, and rebuilt on a
+    // miss. It is what keeps a command from reading every event and every
+    // object of a large store.
+
+    fn cache_path(&self, kind: &str, key: &str) -> PathBuf {
+        self.dir.join("cache").join(format!("{}-{}.json", kind, key))
+    }
+
+    pub fn cache_read<T: DeserializeOwned>(&self, kind: &str, key: &str) -> Option<T> {
+        let text = fs::read_to_string(self.cache_path(kind, key)).ok()?;
+        serde_json::from_str(&text).ok()
+    }
+
+    /// Write a memo, replacing older memos of the same kind. Failures are
+    /// ignored: a cache that cannot be written only costs time.
+    pub fn cache_write<T: Serialize>(&self, kind: &str, key: &str, value: &T) {
+        let dir = self.dir.join("cache");
+        if fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        self.ensure_ignored("cache/");
+        let Ok(text) = serde_json::to_string(value) else { return };
+        let path = self.cache_path(kind, key);
+        let tmp = dir.join(format!("{}-{}.tmp{}", kind, key, std::process::id()));
+        if fs::write(&tmp, text).is_ok() && fs::rename(&tmp, &path).is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        if let Ok(rd) = fs::read_dir(&dir) {
+            let prefix = format!("{}-", kind);
+            for e in rd.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with(&prefix) && name.ends_with(".json") && e.path() != path {
+                    let _ = fs::remove_file(e.path());
+                }
+            }
+        }
+    }
+
+    /// A store from before the cache existed gets the ignore line, so the
+    /// cache is never committed.
+    fn ensure_ignored(&self, line: &str) {
+        let p = self.dir.join(".gitignore");
+        let cur = fs::read_to_string(&p).unwrap_or_default();
+        if !cur.lines().any(|l| l.trim() == line) {
+            let _ = fs::write(&p, format!("{}{}{}\n", cur, if cur.is_empty() || cur.ends_with('\n') { "" } else { "\n" }, line));
+        }
+    }
+
+    /// The plan a snapshot loads to, from the cache or the objects.
+    pub fn load_plan(&self, snapshot: &str) -> Result<crate::plan::Plan> {
+        if let Some(p) = self.cache_read::<crate::plan::Plan>("plan", snapshot) {
+            return Ok(p);
+        }
+        let snap = self.read_snapshot(snapshot)?;
+        let plan = crate::plan::Plan::load(self, &snap)?;
+        self.cache_write("plan", snapshot, &plan);
+        Ok(plan)
+    }
+
+    /// The per-leaf statuses an event implies, from the cache or the
+    /// history back from it.
+    pub fn leaf_statuses_at(&self, head: &str) -> Result<HashMap<TaskId, crate::state::Status>> {
+        if let Some(m) = self.cache_read::<HashMap<TaskId, crate::state::Status>>("status", head) {
+            return Ok(m);
+        }
+        let history = self.history_from(Some(head.to_string()))?;
+        let m = crate::state::leaf_statuses(&history);
+        self.cache_write("status", head, &m);
+        Ok(m)
+    }
+
     // ----- HEAD ----------------------------------------------------------
 
     /// The HEAD file, parsed. Normally one line, the latest event. It may
@@ -476,13 +577,17 @@ impl Store {
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                     // A file time a hair in the future (clock granularity) counts as age zero.
                     let age = fs::metadata(&path).and_then(|m| m.modified()).ok().map(|m| m.elapsed().unwrap_or(Duration::ZERO));
+                    let holder = fs::read_to_string(&path).unwrap_or_default();
+                    // A lock whose process has exited (a crash) is broken at
+                    // once when that can be told; otherwise after `stale`.
+                    let dead = age.map(|a| a >= Duration::from_millis(200)).unwrap_or(false) && lock_holder_exited(&holder);
                     if let Some(age) = age {
-                        if age >= stale {
-                            let holder = fs::read_to_string(&path).unwrap_or_default();
+                        if dead || age >= stale {
                             let broken = self.dir.join(format!("lock.broken-{}", std::process::id()));
                             if fs::rename(&path, &broken).is_ok() {
                                 let _ = fs::remove_file(&broken);
-                                eprintln!("tsk: broke a stale lock ({}s old; {})", age.as_secs(), holder.replace('\n', "; ").trim_end_matches("; "));
+                                let why = if dead { "its process has exited".to_string() } else { format!("{}s old", age.as_secs()) };
+                                eprintln!("tsk: broke a stale lock ({}; {})", why, holder.replace('\n', "; ").trim_end_matches("; "));
                                 continue;
                             }
                         }

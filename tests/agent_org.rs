@@ -26,10 +26,17 @@ fn parallel_writers_never_lose_an_event() {
     assert_eq!(log.lines().filter(|l| !l.starts_with('#')).count(), 17, "{}", log);
     assert!(log.contains("-- agent-7"), "events carry each agent's identity:\n{}", log);
     assert!(!p.dir.join(".tasks/lock").exists(), "the lock is released");
-    // A live lock is waited on, then reported; a stale one is broken.
-    std::fs::write(p.dir.join(".tasks/lock"), "pid 1\n").unwrap();
+    // A lock held by a live process is waited on, then reported.
+    std::fs::write(p.dir.join(".tasks/lock"), format!("pid {}\n", std::process::id())).unwrap();
     let (ok, text) = p.run_from(&p.dir, &[("TSK_LOCK_TIMEOUT", "1")], &["add", "blocked"]);
     assert!(!ok && text.contains("locked by another tsk"), "{}", text);
+    // One whose process has exited (a crash) is broken at once; one too old
+    // to tell is broken after `lock.stale`.
+    std::fs::write(p.dir.join(".tasks/lock"), "pid 1\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    let (ok, text) = p.run_from(&p.dir, &[], &["add", "after crash"]);
+    assert!(ok && text.contains("its process has exited"), "{}", text);
+    std::fs::write(p.dir.join(".tasks/lock"), "no pid here\n").unwrap();
     let (ok, text) = p.run_from(&p.dir, &[("TSK_LOCK_STALE", "0")], &["add", "after stale"]);
     assert!(ok && text.contains("broke a stale lock"), "{}", text);
 }
@@ -139,7 +146,9 @@ fn render_is_idempotent_and_backlinks_find_notes() {
     assert!(bl.contains("notes/cli.md:2"), "{}", bl);
     assert!(!bl.lines().any(|l| l.starts_with("tasks/")), "rendered pages are not backlinks: {}", bl);
     assert!(p.ok(&["backlinks", "1.1"]).contains("nothing links"));
-    // A custom folder, from config.
+    // A custom folder, from the flag and from config.
+    assert!(p.ok(&["render", "--dir", "mirror"]).contains("mirror"));
+    assert!(p.dir.join("mirror/t1.md").exists());
     p.ok(&["config", "render.dir", "plan/pages"]);
     assert!(p.ok(&["render"]).contains("plan"));
     assert!(p.dir.join("plan/pages/t1.md").exists());

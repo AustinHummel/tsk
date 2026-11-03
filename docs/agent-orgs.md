@@ -1,14 +1,17 @@
 # tsk in a hierarchy of agents
 
-How tsk fits an org of agents: a coordinator that starts subagents, which
-start subagents, all working at once, keeping their knowledge in a vault of
-markdown notes with strict limits on how much one note may hold. The
-mechanics are in the [README](../README.md); this is the way to use them.
+How tsk can fit an org of agents: a coordinator that starts subagents,
+which start subagents, all working at once, keeping their knowledge in a
+vault of markdown notes with strict limits on how much one note may hold.
+The mechanics are in the [README](../README.md); this is one way to use
+them, worked out in one org's trial. Take what fits; where an org already
+has a process that works, that process wins.
 
 ## One task per session
 
-Give every agent session a task, and give a subagent a task that is a
-descendant of its parent's task. Not every task up the chain has an agent
+One arrangement that works: every agent session gets a task, and a
+subagent gets a task that is a descendant of its parent's task. Not every
+task up the chain has an agent
 running; that cannot be guaranteed when the tree is deeper than the agents
 can nest. But every running agent has a task, and the tree holds the intent
 at every level whether or not anyone is running there. That is the point:
@@ -38,9 +41,9 @@ smallest accurate scope for the work:
   it (including what is required of its ancestors, which is who waits on
   this work), its blocks, siblings and children.
 
-Nothing else in the plan is needed to work the task. An agent that needs
-more has found a missing requirement or a missing doc link, and should add
-it rather than read wider.
+Usually nothing else in the plan is needed to work the task. When an
+agent finds it needs more, that is often a missing requirement or a
+missing doc link, worth adding rather than reading wider.
 
 `--full` adds every ancestor's body. `--json` gives the same for a program.
 
@@ -51,10 +54,11 @@ follows how an engagement unfolds (understand, build, hand over); a vault
 follows what is known (a product, a customer, a process). Mirroring one
 into the other files knowledge where the work happened instead of where it
 will be looked for, and tasks are far more numerous and shorter-lived than
-the things worth knowing. So: do not make the vault's folders follow the
-tree. Use the tree as the skeleton of *intent* and link the two explicitly.
+the things worth knowing. So it seems better not to make the vault's
+folders follow the tree, and instead to use the tree as the skeleton of
+*intent* and link the two explicitly.
 
-There are three kinds of writing, and each has one home.
+One way to sort what gets written, three kinds with one home each:
 
 1. **Intent and decisions.** Why the plan has the shape it has: the
    requester's reason, each narrative, each requirement's reason, each
@@ -109,6 +113,16 @@ pending merge) before writing, and treat a refused write as a conflict to
 read with `tsk merge --dry-run` and resolve. Commit the store after the
 merge like any other change.
 
+## Speed as the org works
+
+A command's cost does not grow with the history. The store keeps a
+disposable cache (`.tasks/cache/`, never committed) of the plan each
+snapshot loads to and the statuses each HEAD implies, keyed by the hash
+they derive from; a command reads those two files, not every object and
+every event. On a plan of 664 tasks with 966 events, `ready` and `plan`
+answer in under 20 ms and a change takes under 50 ms. Only the views
+that show history read it. Pruning is for size, not speed.
+
 ## What the store costs, and pruning
 
 An event is its own record (a few hundred bytes) plus the one path of the
@@ -139,9 +153,9 @@ match the store the commit carries.
 
 An org has processes: a review checklist, a release procedure, a
 session's close. An agent follows them from a skill or a command. There
-is a symmetry with task types, and it is worth using, with one rule that
-keeps it from turning the plan into a script: **a type holds the scope a
-process owes, never its steps.** Each item is something that must be true
+is a symmetry with task types that seems worth using, with one guideline
+that keeps it from turning the plan into a script: **a type holds the
+scope a process owes, not its steps.** Each item is something that must be true
 at the end, stated so that someone else could check it without knowing
 how it was done ("the change is covered by a test that fails without
 it"), not an instruction ("run the tests"). The how stays in the skill,
@@ -158,11 +172,11 @@ change, which no skill can do on its own. A process that is one
 judgement call, or advice, is not a type; the task links the skill with
 `doc` and that is enough.
 
-Keep a type small, three to seven items. Give an item that applies only
-sometimes a `--when`, so the agent that drops it on an instance it
-doesn't fit is following the type, not bending it. Treat a change to a
-type as a change to an instruction: the same review the org gives a
-skill.
+Types tend to work best small, three to seven items. An item that applies
+only sometimes can carry a `--when`, so the agent that drops it on an
+instance it doesn't fit is following the type, not bending it. A change
+to a type is in effect a change to an instruction, so whatever review the
+org gives a skill probably belongs here too.
 
 ```
 tsk type add change "A change to the product" --doc skills/change/SKILL.md

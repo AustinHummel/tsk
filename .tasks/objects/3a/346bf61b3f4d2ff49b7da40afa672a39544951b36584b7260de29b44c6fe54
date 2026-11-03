@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "305ae819f065d471a667a855dbbb01a460fb4956701e0620fcbe612ee27ec99e",
+  "snapshot": "b7655c266ae3d179206b4566b26843b06f96b703603b6747caf7c2063de14459",
+  "time": "2026-11-03T10:57:05Z",
+  "author": "Claude (side session)",
+  "message": "link 4.1 -> 4.2: the cache stores the indexed plan",
+  "subjects": [
+    "t37",
+    "t38"
+  ],
+  "forced": false
+}

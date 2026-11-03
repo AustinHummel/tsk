@@ -5,7 +5,7 @@ use crate::model::*;
 use crate::plan::Plan;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum Status {
     Todo,
     Spike,
@@ -38,29 +38,34 @@ impl Status {
     }
 }
 
+/// Fold one event into the per-leaf status map.
+pub fn apply_event(out: &mut HashMap<TaskId, Status>, ev: &Event) {
+    let st = match ev.kind {
+        EventKind::Started => Status::InProgress,
+        EventKind::Paused => Status::Paused,
+        EventKind::Completed => Status::Complete,
+        EventKind::Uncompleted => Status::Todo,
+        EventKind::Dropped => Status::Dropped,
+        EventKind::FlaggedAsSpike => Status::Spike,
+        EventKind::BrokenDown | EventKind::Applied => Status::Todo,
+        _ => return,
+    };
+    for s in &ev.subjects {
+        if ev.kind == EventKind::BrokenDown || ev.kind == EventKind::Applied {
+            // The parent's own status ends; the children carry it on.
+            out.remove(s);
+        } else {
+            out.insert(s.clone(), st);
+        }
+    }
+}
+
 /// The last status-changing event per leaf, read from the history.
 pub fn leaf_statuses(history: &[(Hash, Event)]) -> HashMap<TaskId, Status> {
     let mut out: HashMap<TaskId, Status> = HashMap::new();
     // history is newest first; walk oldest first so later events win.
     for (_, ev) in history.iter().rev() {
-        let st = match ev.kind {
-            EventKind::Started => Status::InProgress,
-            EventKind::Paused => Status::Paused,
-            EventKind::Completed => Status::Complete,
-            EventKind::Uncompleted => Status::Todo,
-            EventKind::Dropped => Status::Dropped,
-            EventKind::FlaggedAsSpike => Status::Spike,
-            EventKind::BrokenDown | EventKind::Applied => Status::Todo,
-            _ => continue,
-        };
-        for s in &ev.subjects {
-            if ev.kind == EventKind::BrokenDown || ev.kind == EventKind::Applied {
-                // The parent's own status ends; the children carry it on.
-                out.remove(s);
-            } else {
-                out.insert(s.clone(), st);
-            }
-        }
+        apply_event(&mut out, ev);
     }
     out
 }
@@ -69,7 +74,10 @@ pub struct Derived {
     pub status: BTreeMap<TaskId, Status>,
     /// Expanded edges: predecessor leaf -> successor leaf, with the
     /// requirement ids that put them there.
-    pub edges: BTreeMap<(TaskId, TaskId), BTreeSet<ReqId>>,
+    /// The expanded edges keyed by successor, for `blocks`.
+    pub in_edges: HashMap<TaskId, Vec<(TaskId, BTreeSet<ReqId>)>>,
+    /// Requirement ids placed by each task.
+    pub reqs_from: HashMap<TaskId, Vec<ReqId>>,
     /// Strongly connected components of size > 1 or with a self edge.
     pub loops: Vec<Loop>,
     pub in_loop: HashMap<TaskId, usize>,
@@ -94,11 +102,19 @@ pub enum Block {
 }
 
 impl Derived {
-    pub fn compute(plan: &Plan, history: &[(Hash, Event)]) -> Derived {
-        let leaf = leaf_statuses(history);
+    pub fn compute(plan: &Plan, leaf: &HashMap<TaskId, Status>) -> Derived {
+        let leaf = leaf.clone();
         let mut status = BTreeMap::new();
+        let mut memo: HashMap<TaskId, Status> = HashMap::new();
         for id in plan.tasks.keys() {
-            status.insert(id.clone(), status_of(plan, &leaf, id));
+            let st = status_of(plan, &leaf, id, &mut memo);
+            status.insert(id.clone(), st);
+        }
+        let mut reqs_from: HashMap<TaskId, Vec<ReqId>> = HashMap::new();
+        for r in plan.reqs.values() {
+            if let Requirer::Task(t) = &r.from {
+                reqs_from.entry(t.clone()).or_default().push(r.id.clone());
+            }
         }
 
         // Expand each blocking requirement from=F on=P into edges from every
@@ -167,7 +183,11 @@ impl Derived {
             loops.push(Loop { tasks, reqs });
         }
 
-        Derived { status, edges, loops, in_loop }
+        let mut in_edges: HashMap<TaskId, Vec<(TaskId, BTreeSet<ReqId>)>> = HashMap::new();
+        for ((p, f), rs) in &edges {
+            in_edges.entry(f.clone()).or_default().push((p.clone(), rs.clone()));
+        }
+        Derived { status, in_edges, reqs_from, loops, in_loop }
     }
 
     pub fn status(&self, id: &str) -> Status {
@@ -182,15 +202,16 @@ impl Derived {
             out.push(Block::Loop(*i));
         }
         for anc in plan.ancestors_and_self(id) {
-            for r in plan.reqs_from(&anc.id) {
+            for rid in self.reqs_from.get(&anc.id).into_iter().flatten() {
+                let r = &plan.reqs[rid];
                 if r.conditional {
                     out.push(Block::Tentative(r.id.clone(), self.status(&r.on) == Status::Complete));
                 }
             }
         }
         let mut per_req: BTreeMap<ReqId, usize> = BTreeMap::new();
-        for ((p, f), rs) in &self.edges {
-            if f == id && self.status(p) != Status::Complete && self.status(p) != Status::Dropped {
+        for (p, rs) in self.in_edges.get(id).into_iter().flatten() {
+            if self.status(p) != Status::Complete && self.status(p) != Status::Dropped {
                 for r in rs {
                     *per_req.entry(r.clone()).or_default() += 1;
                 }
@@ -224,11 +245,20 @@ impl Derived {
     pub fn is_tentative(&self, plan: &Plan, id: &str) -> bool {
         plan.ancestors_and_self(id)
             .iter()
-            .any(|a| plan.reqs_from(&a.id).iter().any(|r| r.conditional))
+            .any(|a| self.reqs_from.get(&a.id).into_iter().flatten().any(|r| plan.reqs[r].conditional))
     }
 }
 
-fn status_of(plan: &Plan, leaf: &HashMap<TaskId, Status>, id: &str) -> Status {
+fn status_of(plan: &Plan, leaf: &HashMap<TaskId, Status>, id: &str, memo: &mut HashMap<TaskId, Status>) -> Status {
+    if let Some(s) = memo.get(id) {
+        return *s;
+    }
+    let st = status_of_uncached(plan, leaf, id, memo);
+    memo.insert(id.to_string(), st);
+    st
+}
+
+fn status_of_uncached(plan: &Plan, leaf: &HashMap<TaskId, Status>, id: &str, memo: &mut HashMap<TaskId, Status>) -> Status {
     if let Some(s) = leaf.get(id) {
         if *s == Status::Dropped {
             return Status::Dropped;
@@ -238,7 +268,7 @@ fn status_of(plan: &Plan, leaf: &HashMap<TaskId, Status>, id: &str) -> Status {
     if kids.is_empty() {
         return leaf.get(id).copied().unwrap_or(Status::Todo);
     }
-    let ks: Vec<Status> = kids.iter().map(|k| status_of(plan, leaf, &k.id)).collect();
+    let ks: Vec<Status> = kids.iter().map(|k| status_of(plan, leaf, &k.id, memo)).collect();
     let live: Vec<Status> = ks.iter().copied().filter(|s| *s != Status::Dropped).collect();
     if live.is_empty() {
         return Status::Dropped;

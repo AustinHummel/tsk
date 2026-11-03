@@ -22,8 +22,8 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
     /// Run as if started in DIR (like `git -C`).
-    #[arg(short = 'C', global = true, value_name = "DIR")]
-    dir: Option<PathBuf>,
+    #[arg(short = 'C', long = "chdir", global = true, value_name = "DIR")]
+    chdir: Option<PathBuf>,
     /// The store to use: a `.tasks` directory or the project that holds one.
     /// Also read from `TSK_STORE`. Leaves the working directory alone.
     #[arg(long, global = true, env = "TSK_STORE", value_name = "PATH")]
@@ -337,7 +337,7 @@ fn main() {
     let cli = Cli::parse();
     let json = cli.json;
     commands::set_json(json);
-    if let Some(d) = &cli.dir {
+    if let Some(d) = &cli.chdir {
         if let Err(e) = std::env::set_current_dir(d) {
             eprintln!("tsk: cannot change to {}: {}", d.display(), e);
             std::process::exit(1);

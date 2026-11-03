@@ -1,0 +1,13 @@
+req
+{
+  "id": "r23",
+  "from": {
+    "kind": "person",
+    "id": "Austin"
+  },
+  "on": "t36",
+  "reason": "a 664-task store took seconds per command and would get slower as the org works; render --dir crashed; a crashed agent left its lock for a minute",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-03T10:56:49Z"
+}

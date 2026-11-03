@@ -4,15 +4,28 @@
 use crate::model::*;
 use crate::store::Store;
 use anyhow::{bail, Result};
-use std::collections::{BTreeMap, HashMap};
+use std::cell::{Ref, RefCell};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Plan {
     pub tasks: BTreeMap<TaskId, Task>,
     pub reqs: BTreeMap<ReqId, Requirement>,
     pub types: BTreeMap<TypeId, TaskType>,
     pub next_task: u64,
     pub next_req: u64,
+    /// The tree shape and outline numbers, built once per plan state. Any
+    /// code that adds a task or moves one calls `invalidate`.
+    #[serde(skip)]
+    index: RefCell<Option<Index>>,
+}
+
+/// Everything about the tree that is derived from `parent` and `seq`.
+#[derive(Debug, Clone, Default)]
+struct Index {
+    children: HashMap<Option<TaskId>, Vec<TaskId>>,
+    numbering: HashMap<TaskId, String>,
+    parents: HashSet<TaskId>,
 }
 
 impl Plan {
@@ -66,10 +79,13 @@ impl Plan {
             types.insert(id.clone(), store.write_object(ObjectType::Type, t)?);
         }
         let header = SnapshotHeader { version: 2, tree: write_tree(self, store, None, &reqs_on)?, types, next_task: self.next_task, next_req: self.next_req };
-        store.write_object(ObjectType::Snapshot, &header)
+        let hash = store.write_object(ObjectType::Snapshot, &header)?;
+        store.cache_write("plan", &hash, self);
+        Ok(hash)
     }
 
     pub fn new_task_id(&mut self) -> TaskId {
+        self.invalidate();
         self.next_task += 1;
         format!("t{}", self.next_task)
     }
@@ -85,25 +101,52 @@ impl Plan {
         self.tasks.get(id).ok_or_else(|| anyhow::anyhow!("no task {}", id))
     }
 
+    /// Drop the cached tree shape; the next structural query rebuilds it.
+    pub fn invalidate(&self) {
+        *self.index.borrow_mut() = None;
+    }
+
+    fn index(&self) -> Ref<'_, Index> {
+        if self.index.borrow().is_none() {
+            let mut ix = Index::default();
+            let mut by_parent: HashMap<Option<TaskId>, Vec<&Task>> = HashMap::new();
+            for t in self.tasks.values() {
+                by_parent.entry(t.parent.clone()).or_default().push(t);
+            }
+            for (p, mut kids) in by_parent {
+                kids.sort_by_key(|t| t.seq);
+                if let Some(p) = &p {
+                    ix.parents.insert(p.clone());
+                }
+                ix.children.insert(p, kids.into_iter().map(|t| t.id.clone()).collect());
+            }
+            fn walk(ix: &mut Index, parent: Option<&str>, prefix: &str) {
+                let kids = ix.children.get(&parent.map(String::from)).cloned().unwrap_or_default();
+                for (i, k) in kids.iter().enumerate() {
+                    let num = if prefix.is_empty() { format!("{}", i + 1) } else { format!("{}.{}", prefix, i + 1) };
+                    ix.numbering.insert(k.clone(), num.clone());
+                    walk(ix, Some(k), &num);
+                }
+            }
+            walk(&mut ix, None, "");
+            *self.index.borrow_mut() = Some(ix);
+        }
+        Ref::map(self.index.borrow(), |o| o.as_ref().unwrap())
+    }
+
     /// Children in creation order.
     pub fn children(&self, id: &str) -> Vec<&Task> {
-        let mut v: Vec<&Task> = self
-            .tasks
-            .values()
-            .filter(|t| t.parent.as_deref() == Some(id))
-            .collect();
-        v.sort_by_key(|t| t.seq);
-        v
+        let ix = self.index();
+        ix.children.get(&Some(id.to_string())).map(|v| v.iter().filter_map(|k| self.tasks.get(k)).collect()).unwrap_or_default()
     }
 
     pub fn roots(&self) -> Vec<&Task> {
-        let mut v: Vec<&Task> = self.tasks.values().filter(|t| t.parent.is_none()).collect();
-        v.sort_by_key(|t| t.seq);
-        v
+        let ix = self.index();
+        ix.children.get(&None).map(|v| v.iter().filter_map(|k| self.tasks.get(k)).collect()).unwrap_or_default()
     }
 
     pub fn is_parent(&self, id: &str) -> bool {
-        self.tasks.values().any(|t| t.parent.as_deref() == Some(id))
+        self.index().parents.contains(id)
     }
 
     /// Root first, the task itself last.
@@ -120,12 +163,12 @@ impl Plan {
 
     /// The task and every descendant.
     pub fn subtree(&self, id: &str) -> Vec<TaskId> {
+        let ix = self.index();
         let mut out = vec![id.to_string()];
         let mut i = 0;
         while i < out.len() {
-            let cur = out[i].clone();
-            for c in self.children(&cur) {
-                out.push(c.id.clone());
+            if let Some(kids) = ix.children.get(&Some(out[i].clone())) {
+                out.extend(kids.iter().cloned());
             }
             i += 1;
         }
@@ -136,28 +179,11 @@ impl Plan {
 
     /// `1.2.4` for every task.
     pub fn numbering(&self) -> HashMap<TaskId, String> {
-        let mut out = HashMap::new();
-        fn walk(plan: &Plan, parent: Option<&str>, prefix: &str, out: &mut HashMap<TaskId, String>) {
-            let kids = match parent {
-                None => plan.roots(),
-                Some(p) => plan.children(p),
-            };
-            for (i, k) in kids.iter().enumerate() {
-                let num = if prefix.is_empty() {
-                    format!("{}", i + 1)
-                } else {
-                    format!("{}.{}", prefix, i + 1)
-                };
-                out.insert(k.id.clone(), num.clone());
-                walk(plan, Some(&k.id), &num, out);
-            }
-        }
-        walk(self, None, "", &mut out);
-        out
+        self.index().numbering.clone()
     }
 
     pub fn number_of(&self, id: &str) -> String {
-        self.numbering().get(id).cloned().unwrap_or_else(|| "?".to_string())
+        self.index().numbering.get(id).cloned().unwrap_or_else(|| "?".to_string())
     }
 
     /// Accept a task id (`t7`), an outline number (`1.2.4`), or an exact

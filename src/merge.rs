@@ -168,6 +168,7 @@ impl Replay {
         nt.parent = t.parent.as_deref().map(|p| self.t(p));
         nt.core_of = t.core_of.as_deref().map(|p| self.t(p));
         self.plan.tasks.insert(nt.id.clone(), nt);
+        self.plan.invalidate();
     }
 
     fn task_changed(&mut self, pre: &Task, post: &Task, label: &str) {
@@ -189,6 +190,7 @@ impl Replay {
         self.list(&mut cur.docs, &pre.docs, &post.docs);
         self.fields(label, &mut cur.fields, &pre.fields, &post.fields);
         self.plan.tasks.insert(id, cur);
+        self.plan.invalidate();
     }
 
     fn req_added(&mut self, r: &Requirement) {

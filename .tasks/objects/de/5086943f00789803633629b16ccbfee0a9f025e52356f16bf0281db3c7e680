@@ -1,0 +1,9 @@
+task
+{
+  "id": "t37",
+  "title": "Tree index",
+  "parent": "t36",
+  "seq": 37,
+  "body": "The tree shape and outline numbers are built once per plan state instead of on every lookup; status is memoized; edges are indexed by successor. The outline on 664 tasks: 2.6 s to 19 ms.",
+  "types": []
+}

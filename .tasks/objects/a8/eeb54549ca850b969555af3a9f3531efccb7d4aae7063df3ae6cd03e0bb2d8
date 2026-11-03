@@ -1,0 +1,9 @@
+task
+{
+  "id": "t38",
+  "title": "Disposable cache",
+  "parent": "t36",
+  "seq": 38,
+  "body": "`.tasks/cache/` memoizes the plan per snapshot and the leaf statuses per HEAD, keyed by content hash, never committed. A command reads two files instead of every object and event; history no longer makes commands slower.",
+  "types": []
+}

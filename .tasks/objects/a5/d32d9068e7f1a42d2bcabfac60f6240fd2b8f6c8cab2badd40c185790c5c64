@@ -1,0 +1,9 @@
+task
+{
+  "id": "t39",
+  "title": "render --dir",
+  "parent": "t36",
+  "seq": 39,
+  "body": "A clap id collision between the global -C flag and render's --dir crashed the program; the global flag is now named `chdir`.",
+  "types": []
+}

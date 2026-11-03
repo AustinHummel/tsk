@@ -144,7 +144,7 @@ fn page(c: &Ctx, id: &str, rel_dir: &str) -> String {
             }
         }
     }
-    let events: Vec<&(Hash, Event)> = c.history.iter().filter(|(_, e)| e.subjects.contains(&id.to_string())).collect();
+    let events: Vec<&(Hash, Event)> = c.history().iter().filter(|(_, e)| e.subjects.contains(&id.to_string())).collect();
     if !events.is_empty() {
         s.push_str("\n## History\n\n");
         for (h, e) in events.iter().rev() {
@@ -181,7 +181,7 @@ fn index(c: &Ctx) -> String {
             s.push_str(&format!("- `{}` {} ({} items)\n", t.id, t.title, t.items.len()));
         }
     }
-    if let Some(h) = c.history.first() {
+    if let Some(h) = c.history().first() {
         s.push_str(&format!("\nAs of event `{}`, {}.\n", &h.0[..10], h.1.time));
     }
     s

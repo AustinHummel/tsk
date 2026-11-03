@@ -1,0 +1,9 @@
+task
+{
+  "id": "t41",
+  "title": "Guidance tone",
+  "parent": "t36",
+  "seq": 41,
+  "body": "The agent-org guide reads as one org's way, not rules.",
+  "types": []
+}

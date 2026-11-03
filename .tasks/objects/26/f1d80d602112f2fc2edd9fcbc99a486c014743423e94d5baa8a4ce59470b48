@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "821c2952c51de7beb7a2da5e89873e25f7ee3d4cfa2e9eb375abf0f851b3b65b",
+  "snapshot": "f125b41d3a35e3e18f4c252c73bc84fbb545cc597bd9cd756ea55f5adfe23dff",
+  "time": "2026-11-03T10:56:49Z",
+  "author": "Claude (side session)",
+  "message": "add Speed, and two bugs from a trial (0.4.1)",
+  "subjects": [
+    "t36"
+  ],
+  "forced": false
+}

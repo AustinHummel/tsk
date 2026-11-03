@@ -1,6 +1,6 @@
 [package]
 name = "tsk"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "A simple CLI for project planning and tracking. Command language inspired by Git."
 repository = "https://github.com/AustinHummel/tsk"

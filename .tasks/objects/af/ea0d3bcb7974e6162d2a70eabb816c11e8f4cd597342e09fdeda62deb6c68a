@@ -1,0 +1,18 @@
+event
+{
+  "kind": "Applied",
+  "parent": "0f832e19080e727b66462583423114579f5b929a24938ea91ca52213a3334739",
+  "snapshot": "b670b40428e4a5ebf0ac5952428c9034afc27ad8d725e075243da4b0f1182e3e",
+  "time": "2026-11-03T10:57:05Z",
+  "author": "Claude (side session)",
+  "message": "apply release to 4.6",
+  "subjects": [
+    "t42",
+    "t43",
+    "t44",
+    "t45",
+    "t46",
+    "t47"
+  ],
+  "forced": false
+}

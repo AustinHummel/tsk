@@ -126,10 +126,12 @@ Every change takes `.tasks/lock` for the few milliseconds it needs to
 write its event, so parallel commands from any number of processes
 serialize cleanly and nothing is lost. Readers never lock. A command that
 finds the lock held waits (with backoff) up to `lock.timeout` seconds
-(default 30) and then says who holds it; a lock older than `lock.stale`
-seconds (default 60), which only a crashed process leaves, is broken and
-reported. Both can be set per store with `tsk config` or per process with
-`TSK_LOCK_TIMEOUT` / `TSK_LOCK_STALE`.
+(default 30) and then says who holds it. A lock left by a process that
+crashed is broken at once when tsk can tell its process has exited (same
+machine), and otherwise once it is older than `lock.stale` seconds
+(default 60); either way the break is reported. Both can be set per store
+with `tsk config` or per process with `TSK_LOCK_TIMEOUT` /
+`TSK_LOCK_STALE`.
 
 Each event carries an author: `TSK_AUTHOR` if set, else the store's
 `author` config, else the OS user. A session that sets `TSK_AUTHOR` signs
@@ -189,6 +191,16 @@ that link to a task's page, as `[[t7]]` or `tasks/t7.md`.
 `tree`, `snapshot`, `event`. `.tasks/HEAD` is the latest event. A snapshot
 is a tree of per-parent objects, so an event costs its own record plus the
 one path of the plan it changed; a status change costs the event alone.
+
+`.tasks/cache/` holds memos of what the store implies (the plan a
+snapshot loads to, the statuses a HEAD implies), keyed by the hash they
+derive from, so they can never be stale. It is disposable and never
+committed; delete it any time and the next command rebuilds it. With it,
+a command reads two files instead of every object and every event, so a
+store does not get slower as its history grows: on a plan of 664 tasks
+and 966 events, `ready` and `plan` take under 20 ms and a change under
+50 ms (Windows, i7). The views that show history (`log`, `show`,
+`forced`, `diff`) still read it, and `prune` is for size, not speed.
 
 Commit `.tasks/` with your project. `.tasks/log` has one line per event
 (time, event, kind, message, tasks, author), appended by every command, so

@@ -61,7 +61,7 @@ pub fn show(task: String, json: bool) -> Result<()> {
     let t = c.plan.task(&id)?;
     let st = c.derived.status(&id);
     let blocks = c.derived.blocks(&c.plan, &id);
-    let events: Vec<&(Hash, Event)> = c.history.iter().filter(|(_, e)| e.subjects.contains(&id)).collect();
+    let events: Vec<&(Hash, Event)> = c.history().iter().filter(|(_, e)| e.subjects.contains(&id)).collect();
     if json {
         let v = json!({
             "task": t,
@@ -85,7 +85,7 @@ pub fn show(task: String, json: bool) -> Result<()> {
         facts.push(format!("type {}", t.types.join(",")));
     }
     if st == Status::Dropped {
-        if let Some((_, d)) = c.history.iter().find(|(_, e)| e.subjects.contains(&id) && e.kind == EventKind::Dropped) {
+        if let Some((_, d)) = c.history().iter().find(|(_, e)| e.subjects.contains(&id) && e.kind == EventKind::Dropped) {
             facts.push(d.message.clone());
         }
     }
@@ -514,7 +514,7 @@ pub fn stale(json: bool) -> Result<()> {
 
 pub fn forced(json: bool) -> Result<()> {
     let c = open()?;
-    let rows: Vec<&(Hash, Event)> = c.history.iter().filter(|(_, e)| e.forced).collect();
+    let rows: Vec<&(Hash, Event)> = c.history().iter().filter(|(_, e)| e.forced).collect();
     if json {
         println!("{}", serde_json::to_string_pretty(&rows.iter().map(|(h, e)| json!({"hash": h, "event": e})).collect::<Vec<_>>())?);
         return Ok(());
@@ -537,7 +537,7 @@ pub fn log(task: Option<String>, limit: Option<usize>, json: bool) -> Result<()>
         None => None,
     };
     let rows: Vec<&(Hash, Event)> = c
-        .history
+        .history()
         .iter()
         .filter(|(_, e)| filter.as_ref().map(|f| e.subjects.contains(f)).unwrap_or(true))
         .take(limit.unwrap_or(usize::MAX))
@@ -601,7 +601,7 @@ pub fn diff(task: Option<String>, from: Option<String>, to: Option<String>, git:
         }
         (None, None, Some(t)) => {
             let id = c.plan.resolve(t)?;
-            let touching: Vec<&(Hash, Event)> = c.history.iter().filter(|(_, e)| e.subjects.contains(&id)).collect();
+            let touching: Vec<&(Hash, Event)> = c.history().iter().filter(|(_, e)| e.subjects.contains(&id)).collect();
             if touching.len() < 2 {
                 bail!("{} has only one event; nothing to diff", c.plan.label(&id));
             }
@@ -671,9 +671,10 @@ fn diff_task(c: &Ctx, id: &str, old_h: &Hash, new_h: &Hash) -> Result<()> {
 fn plan_at(store: &Store, h: &Hash) -> Result<(Plan, Derived)> {
     let ev: Event = store.read_object(ObjectType::Event, h)?;
     let snap = store.read_snapshot(&ev.snapshot).with_context(|| format!("event {}", &h[..10]))?;
-    let plan = Plan::load(store, &snap)?;
-    let history = store.history_from(Some(h.clone()))?;
-    let derived = Derived::compute(&plan, &history);
+    let _ = snap;
+    let plan = store.load_plan(&ev.snapshot)?;
+    let leaf = store.leaf_statuses_at(h)?;
+    let derived = Derived::compute(&plan, &leaf);
     Ok((plan, derived))
 }
 
