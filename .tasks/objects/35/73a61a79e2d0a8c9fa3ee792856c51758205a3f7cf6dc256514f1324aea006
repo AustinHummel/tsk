@@ -1,0 +1,18 @@
+task
+{
+  "id": "t34",
+  "title": "The release carries five archives plus SHA256SUMS, and one archive verified against it",
+  "parent": "t30",
+  "seq": 34,
+  "body": "",
+  "types": [],
+  "from_item": [
+    "release",
+    "assets"
+  ],
+  "docs": [
+    "README.md",
+    ".github/workflows/release.yml",
+    "https://github.com/AustinHummel/tsk/releases/tag/v0.4.0"
+  ]
+}

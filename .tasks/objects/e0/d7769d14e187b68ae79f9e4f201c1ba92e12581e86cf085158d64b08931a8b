@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Set",
+  "parent": "e596d986e5d792e5fa84ac50ddce225dabf59ebd02f8da7562fc5dd4a2e21d22",
+  "snapshot": "c3d741a337d20b2fdac0fc921d41bae6c68251116ad5fbc62bad06e89d3df9c1",
+  "time": "2026-11-03T04:24:14Z",
+  "author": "Claude (side session)",
+  "message": "doc 3.4.4 +https://github.com/AustinHummel/tsk/releases/tag/v0.4.0",
+  "subjects": [
+    "t34"
+  ],
+  "forced": false
+}
