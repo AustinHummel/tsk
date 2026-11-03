@@ -99,6 +99,14 @@ pub struct TypeItem {
     pub pending: Option<String>,
     #[serde(default)]
     pub reqs: Vec<ItemReq>,
+    /// When this item applies, for the agent to confirm or drop it per
+    /// instance; shown on every instance's card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
+    /// Documents this item's scope comes from (a process, a skill); every
+    /// instance inherits them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub docs: Vec<String>,
 }
 
 /// A reusable slice of scope stamped onto every task that carries it.
@@ -110,6 +118,10 @@ pub struct TaskType {
     pub body: String,
     #[serde(default)]
     pub items: Vec<TypeItem>,
+    /// The documents the type stands for (a process, a skill); every
+    /// instance inherits them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub docs: Vec<String>,
 }
 
 /// The whole plan at one moment, flat: every object by id, plus the

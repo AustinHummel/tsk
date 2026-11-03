@@ -293,6 +293,9 @@ enum TypeCmd {
         title: String,
         #[arg(short, long, allow_hyphen_values = true)]
         body: Option<String>,
+        /// A document the type stands for (a process, a skill); instances inherit it. Repeatable.
+        #[arg(long = "doc", value_name = "PATH")]
+        docs: Vec<String>,
     },
     /// Add an item to a type. Applies to every task carrying the type, which `tsk type affected` lists.
     Item {
@@ -308,6 +311,12 @@ enum TypeCmd {
         /// `--req "item:cmd-2: ..."`, or `--req "1.2.3: ..."`. Blocking unless prefixed `~`.
         #[arg(long = "req")]
         reqs: Vec<String>,
+        /// When the item applies; an instance that it doesn't apply to is dropped with that reason.
+        #[arg(long, allow_hyphen_values = true)]
+        when: Option<String>,
+        /// A document the item's scope comes from; instances inherit it. Repeatable.
+        #[arg(long = "doc", value_name = "PATH")]
+        docs: Vec<String>,
     },
     /// Change an item's title or body on the type; instances are listed for review.
     EditItem {
@@ -349,8 +358,8 @@ fn main() {
         Cmd::Set { target, pairs, unset, req } => commands::set(target, pairs, unset, req),
         Cmd::Doc { task, path, rm } => commands::doc(task, path, rm),
         Cmd::Type(t) => match t {
-            TypeCmd::Add { id, title, body } => commands::type_add(id, title, body),
-            TypeCmd::Item { r#type, id, title, body, pending, reqs } => commands::type_item(r#type, id, title, body, pending, reqs),
+            TypeCmd::Add { id, title, body, docs } => commands::type_add(id, title, body, docs),
+            TypeCmd::Item { r#type, id, title, body, pending, reqs, when, docs } => commands::type_item(r#type, id, title, body, pending, reqs, when, docs),
             TypeCmd::EditItem { r#type, item, title, body } => commands::type_edit_item(r#type, item, title, body),
             TypeCmd::Show { r#type } => commands::type_show(r#type, json),
             TypeCmd::List => commands::type_list(json),

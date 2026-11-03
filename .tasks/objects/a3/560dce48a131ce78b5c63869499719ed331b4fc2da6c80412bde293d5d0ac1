@@ -1,0 +1,11 @@
+event
+{
+  "kind": "TypeAdded",
+  "parent": "b06a8a31622ce863daa205bbb35daba2518dd88f95040b9f3d2eaff953b56488",
+  "snapshot": "cc0230aadaa376463fcb952fb3a1e1a8d808b69e3aad245708922fd4336d6da2",
+  "time": "2026-11-03T04:20:52Z",
+  "author": "Claude (side session)",
+  "message": "type release: A tsk release",
+  "subjects": [],
+  "forced": false
+}

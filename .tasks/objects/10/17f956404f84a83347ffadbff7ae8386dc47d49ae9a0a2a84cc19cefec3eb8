@@ -1,0 +1,17 @@
+task
+{
+  "id": "t35",
+  "title": "The README's command table and model name every new command",
+  "parent": "t30",
+  "seq": 35,
+  "body": "When: a command was added or changed",
+  "types": [],
+  "from_item": [
+    "release",
+    "readme"
+  ],
+  "docs": [
+    "README.md",
+    ".github/workflows/release.yml"
+  ]
+}

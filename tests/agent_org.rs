@@ -253,3 +253,31 @@ fn reasons_and_bodies_may_start_with_a_dash() {
     assert!(p.ok(&["show", "1.4"]).contains("- a bullet list"));
     p.ok(&["drop", "1.4", "-- not needed"]);
 }
+
+#[test]
+fn a_type_can_stand_for_a_process_with_docs_and_conditions() {
+    let p = Proj::new("process-type");
+    p.ok(&["add", "root"]);
+    let f = p.file("bd.md", "= child: ship the fix\n= child: ship the docs\n= narrative\nx\n");
+    p.ok(&["breakdown", "1", "-F", &f]);
+    p.ok(&["type", "add", "change", "A change to the product", "--doc", "skills/change/SKILL.md"]);
+    p.ok(&["type", "item", "change", "tested", "The change is covered by a test that fails without it"]);
+    p.ok(&["type", "item", "change", "noted", "The user-facing note is written", "--when", "the change is visible to users", "--doc", "docs/notes.md"]);
+    let show = p.ok(&["type", "show", "change"]);
+    assert!(show.contains("docs: skills/change/SKILL.md") && show.contains("when the change is visible to users") && show.contains("docs docs/notes.md"), "{}", show);
+    p.ok(&["apply", "change", "1.1"]);
+    // Instances carry the type's docs and the item's docs, and the condition.
+    let core = p.ok(&["show", "1.1.1"]);
+    assert!(core.contains("core") && !core.contains("docs:"), "{}", core);
+    let tested = p.ok(&["show", "1.1.2"]);
+    assert!(tested.contains("docs: skills/change/SKILL.md"), "{}", tested);
+    let noted = p.ok(&["show", "1.1.3"]);
+    assert!(noted.contains("docs: skills/change/SKILL.md, docs/notes.md") && noted.contains("When: the change is visible to users"), "{}", noted);
+    let ctx = p.ok(&["context", "1.1.3"]);
+    assert!(ctx.contains("doc: skills/change/SKILL.md"), "the process is one hop from the instance: {}", ctx);
+    // An item that does not apply is dropped with the reason: a recorded exception, not a violation.
+    p.ok(&["drop", "1.1.3", "nothing user-visible in this fix"]);
+    p.ok(&["complete", "1.1.1", "1.1.2"]);
+    assert!(p.ok(&["plan", "-a"]).contains("[x] 1.1 ship the fix"));
+    assert!(p.ok(&["forced"]).contains("no forced events"));
+}

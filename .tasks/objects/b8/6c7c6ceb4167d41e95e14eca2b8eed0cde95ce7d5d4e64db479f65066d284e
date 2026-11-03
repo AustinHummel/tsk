@@ -1,0 +1,31 @@
+tree
+{
+  "entries": [
+    {
+      "id": "t27",
+      "task": "756f298f0dd4dfcffe26e97e9f6b7d8cb86a51e2a8f1633b40d0366724838e92",
+      "reqs": {
+        "r18": "f0ac68dd706f116c327e86712902d87dcc839736cf39746ac711b403ed8d1703"
+      }
+    },
+    {
+      "id": "t28",
+      "task": "da620acf9a5068e79aa56b35e0b2d8f50afe375830ecfe28df89c570cae170e5",
+      "reqs": {
+        "r19": "bb9e988d319072aa0e6553b7394f599e4867c91bd32a18a3757d3408d3aa8075"
+      }
+    },
+    {
+      "id": "t29",
+      "task": "5b299a42c0dd578f0b39e625147c2ba22dd6ad71b46317cfa6c97e0a782823e8",
+      "reqs": {
+        "r20": "480079ac08c8d14098cad7da9d2637c3d3be634d3a0ef776e882a55e4d680f03"
+      }
+    },
+    {
+      "id": "t30",
+      "task": "2d773df2fd8190261cdea5e4d4a430c4ab0afc37d8169a9bb316667be2a24072",
+      "children": "7e82c8ff8306dbc4393eece539af981b419c4969144c20dc1ec2fdd4362ec652"
+    }
+  ]
+}

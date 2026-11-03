@@ -1,0 +1,17 @@
+task
+{
+  "id": "t32",
+  "title": "Every test passes locally and in CI on all three platforms",
+  "parent": "t30",
+  "seq": 32,
+  "body": "",
+  "types": [],
+  "from_item": [
+    "release",
+    "tests"
+  ],
+  "docs": [
+    "README.md",
+    ".github/workflows/release.yml"
+  ]
+}

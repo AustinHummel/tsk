@@ -1,0 +1,9 @@
+task
+{
+  "id": "t27",
+  "title": "Reflog and reset",
+  "parent": "t26",
+  "seq": 27,
+  "body": "Done: reflog, reset, merge names the pre-merge HEAD, prune keeps reflog lines. Dogfooding the next task found that an item requirement written item:<id>: reason lost its id (split at the first colon); fixed, and the store was rewound with tsk reset to redo the type.",
+  "types": []
+}

@@ -575,13 +575,14 @@ pub fn doc(task: String, path: Option<String>, rm: Option<String>) -> Result<()>
 
 // ----- types ---------------------------------------------------------------
 
-pub fn type_add(id: String, title: String, body: Option<String>) -> Result<()> {
+pub fn type_add(id: String, title: String, body: Option<String>, docs: Vec<String>) -> Result<()> {
     let body = read_text(body, false)?.unwrap_or_default();
     let mut c = open_rw()?;
     if c.plan.types.contains_key(&id) {
         bail!("type {} exists", id);
     }
-    c.plan.types.insert(id.clone(), TaskType { id: id.clone(), title: title.clone(), body, items: vec![] });
+    let docs = docs.into_iter().map(|d| d.replace('\\', "/")).collect();
+    c.plan.types.insert(id.clone(), TaskType { id: id.clone(), title: title.clone(), body, items: vec![], docs });
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::TypeAdded, format!("type {}: {}", id, title), vec![]))?;
     done(&c.store, &h, &format!("added type {} ({})", id, title));
     Ok(())
@@ -592,8 +593,13 @@ fn parse_item_req(s: &str) -> Result<ItemReq> {
         Some(rest) => (false, rest),
         None => (true, s),
     };
-    let (on, reason) = s.split_once(':').ok_or_else(|| anyhow!("`--req` wants `<core|item:<id>|task>: reason`, got `{}`", s))?;
-    Ok(ItemReq { on: on.trim().to_string(), reason: reason.trim().to_string(), blocking })
+    // `item:<id>: reason` has two colons; the first belongs to the ref.
+    let (prefix, rest) = match s.strip_prefix("item:") {
+        Some(rest) => ("item:", rest),
+        None => ("", s),
+    };
+    let (on, reason) = rest.split_once(':').ok_or_else(|| anyhow!("`--req` wants `<core|item:<id>|task>: reason`, got `{}`", s))?;
+    Ok(ItemReq { on: format!("{}{}", prefix, on.trim()), reason: reason.trim().to_string(), blocking })
 }
 
 pub(crate) fn instances_of(plan: &Plan, ty: &str, item: &str) -> Vec<TaskId> {
@@ -613,7 +619,7 @@ pub(crate) fn carriers(plan: &Plan, ty: &str) -> Vec<TaskId> {
     v
 }
 
-pub fn type_item(ty: String, id: String, title: String, body: Option<String>, pending: Option<String>, reqs: Vec<String>) -> Result<()> {
+pub fn type_item(ty: String, id: String, title: String, body: Option<String>, pending: Option<String>, reqs: Vec<String>, when: Option<String>, docs: Vec<String>) -> Result<()> {
     let body = read_text(body, false)?.unwrap_or_default();
     let reqs: Vec<ItemReq> = reqs.iter().map(|s| parse_item_req(s)).collect::<Result<_>>()?;
     let mut c = open_rw()?;
@@ -624,7 +630,8 @@ pub fn type_item(ty: String, id: String, title: String, body: Option<String>, pe
     if t.items.iter().any(|i| i.id == id) {
         bail!("type {} already has item {}", ty, id);
     }
-    t.items.push(TypeItem { id: id.clone(), title: title.clone(), body, pending, reqs });
+    let docs = docs.into_iter().map(|d| d.replace('\\', "/")).collect();
+    t.items.push(TypeItem { id: id.clone(), title: title.clone(), body, pending, reqs, when, docs });
     let affected = carriers(&c.plan, &ty);
     let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::TypeEdited, format!("type {} item {}: {}", ty, id, title), affected.clone()))?;
     done(&c.store, &h, &format!("added item {} to type {}", id, ty));
@@ -672,10 +679,19 @@ pub fn type_show(ty: String, json: bool) -> Result<()> {
     if !t.body.is_empty() {
         println!("{}", t.body);
     }
+    if !t.docs.is_empty() {
+        println!("docs: {}", t.docs.join(", "));
+    }
     println!("items:");
     for i in &t.items {
         let p = i.pending.as_ref().map(|p| format!(" (pending {})", p)).unwrap_or_default();
         println!("  {}: {}{}", i.id, i.title, p);
+        if let Some(w) = &i.when {
+            println!("      when {}", w);
+        }
+        if !i.docs.is_empty() {
+            println!("      docs {}", i.docs.join(", "));
+        }
         for r in &i.reqs {
             println!("      {} {}: {}", if r.blocking { "after" } else { "needs" }, r.on, r.reason);
         }
@@ -719,8 +735,14 @@ pub fn apply(ty: String, task: String) -> Result<()> {
     // one child per item
     let mut item_ids: Vec<(String, TaskId)> = Vec::new();
     for it in &t.items {
-        let cid = new_task(&mut c.plan, &it.title, Some(id.clone()), it.body.clone());
-        c.plan.tasks.get_mut(&cid).unwrap().from_item = Some((ty.clone(), it.id.clone()));
+        let mut body = it.body.clone();
+        if let Some(w) = &it.when {
+            body = format!("When: {}{}{}", w, if body.is_empty() { "" } else { "\n\n" }, body);
+        }
+        let cid = new_task(&mut c.plan, &it.title, Some(id.clone()), body);
+        let child = c.plan.tasks.get_mut(&cid).unwrap();
+        child.from_item = Some((ty.clone(), it.id.clone()));
+        child.docs = t.docs.iter().chain(it.docs.iter()).cloned().collect();
         subjects.push(cid.clone());
         item_ids.push((it.id.clone(), cid));
     }

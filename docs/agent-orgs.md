@@ -135,6 +135,42 @@ since the last commit, events and plan both, which is what a session
 reports at its close. Render before committing so the pages in `tasks/`
 match the store the commit carries.
 
+## Processes as types
+
+An org has processes: a review checklist, a release procedure, a
+session's close. An agent follows them from a skill or a command. There
+is a symmetry with task types, and it is worth using, with one rule that
+keeps it from turning the plan into a script: **a type holds the scope a
+process owes, never its steps.** Each item is something that must be true
+at the end, stated so that someone else could check it without knowing
+how it was done ("the change is covered by a test that fails without
+it"), not an instruction ("run the tests"). The how stays in the skill,
+with its judgement and its exceptions; the type links the skill with
+`--doc`, so an instance's `context` shows the process one hop away.
+
+A process is a type when the org needs to *know*, per instance, that its
+scope was covered, not just trust it: the instance's children are the
+record, `plan` shows what is done, a dropped item is a recorded
+exception with a reason, a `--force` is the signal that the type is
+wrong. It is also a type when the process changes and running work must
+be re-checked: editing a type lists every instance that now owes the
+change, which no skill can do on its own. A process that is one
+judgement call, or advice, is not a type; the task links the skill with
+`doc` and that is enough.
+
+Keep a type small, three to seven items. Give an item that applies only
+sometimes a `--when`, so the agent that drops it on an instance it
+doesn't fit is following the type, not bending it. Treat a change to a
+type as a change to an instruction: the same review the org gives a
+skill.
+
+```
+tsk type add change "A change to the product" --doc skills/change/SKILL.md
+tsk type item change tested "Covered by a test that fails without it"
+tsk type item change noted "User-facing note written" --when "the change is visible to users"
+tsk apply change 1.4
+```
+
 ## User-defined fields
 
 Fields hold whatever a workflow needs that the model does not name:

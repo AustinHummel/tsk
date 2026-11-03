@@ -1,0 +1,12 @@
+task
+{
+  "id": "t30",
+  "title": "Release 0.4.0",
+  "parent": "t26",
+  "seq": 30,
+  "body": "",
+  "types": [
+    "release"
+  ],
+  "narrative": "Carries type release (A tsk release). The core child is the task's own scope; the other children are the type's items, which every task of this type owes.\n\nWhat every release owes, whatever changed. The how is the release workflow."
+}

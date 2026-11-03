@@ -79,7 +79,7 @@ Process (porcelain):
 | `move <req> [--from t] [--on t]`, `unlink <req>` | Refactor a requirement. |
 | `set <task> key=value ... [--unset key]`, `set --req <req> ...` | User-defined fields on a task or a requirement. |
 | `doc <task> [path] [--rm path]` | Link a task to a document it serves or produced; list with no path. |
-| `type add`, `type item`, `type edit-item`, `type show`, `type list` | Reusable scope. |
+| `type add [--doc]`, `type item [--when] [--doc] [--req] [--pending]`, `type edit-item`, `type show`, `type list` | Reusable scope; a type can stand for a process (see the agent-org guide). |
 | `apply <type> <task>` | The task becomes a parent of `core` plus one child per item. |
 | `spike`, `confirm`, `start`, `pause`, `complete`, `uncomplete`, `drop` | State changes, each one event. `start` and `complete` take a group. |
 | `show <task>` | The card with everything needed to work it. |
@@ -92,6 +92,7 @@ Process (porcelain):
 | `render [--dir d]` | One markdown page per task, plus an outline, for a vault to browse and link. |
 | `backlinks <task>` | Markdown files in the project that link to the task's page. |
 | `prune [--before E] [--dry-run]` | Drop old snapshots; every event and the log stay. |
+| `reflog`, `reset <event>` | Every move of HEAD on this copy, and the way back to any of them. |
 | `merge [theirs] [--prefer ours\|theirs] [--dry-run]` | Replay another copy's events onto ours. |
 | `git-setup` | Register the git merge driver for `.tasks/HEAD` (once per machine). |
 | `config [key [value]]` | `author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`. |
@@ -257,7 +258,8 @@ asked for. Prune to the oldest event you still diff against.
   record for a dependency (blocking), a technical requirement, and a
   "required by person" entry. Shown from both sides.
 - **Type**: items with their own scope and requirements (`core`,
-  `item:<id>`, or a task), optionally `--pending <task>`.
+  `item:<id>`, or a task), optionally `--pending <task>` or `--when`;
+  docs on the type and its items are inherited by every instance.
 - **Event**: kind, parent event, snapshot, time, author, message, subjects,
   group, forced.
 

@@ -1,0 +1,11 @@
+event
+{
+  "kind": "TypeEdited",
+  "parent": "efd28dbbcaa450271f8c7e0827b67bbe1c7e4e89b4e8d9337e98408bab26ceaf",
+  "snapshot": "d4e693b4bb7a21213c38cc8aa313836446b43f70a20a600789f1f315153284fd",
+  "time": "2026-11-03T04:21:16Z",
+  "author": "Claude (side session)",
+  "message": "type release item assets: The release carries five archives plus SHA256SUMS, and one archive verified against it",
+  "subjects": [],
+  "forced": false
+}

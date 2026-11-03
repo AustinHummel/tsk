@@ -1,0 +1,18 @@
+event
+{
+  "kind": "Completed",
+  "parent": "9c5aafa9403cedd0e6c4a6b5291951a9b25797eace932ed3318b944cab6328b6",
+  "snapshot": "e12d9c5cefeb83b413fb49dbc72dfca1b3275816cc914addefc32026f0ce7e69",
+  "time": "2026-11-03T04:21:47Z",
+  "author": "Claude (side session)",
+  "message": "complete 3.4.1 3.4.5",
+  "subjects": [
+    "t31",
+    "t35"
+  ],
+  "group": [
+    "t31",
+    "t35"
+  ],
+  "forced": false
+}

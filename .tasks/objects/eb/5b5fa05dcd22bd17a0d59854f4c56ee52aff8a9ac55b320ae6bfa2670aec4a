@@ -1,0 +1,11 @@
+event
+{
+  "kind": "TypeEdited",
+  "parent": "6ab51bdb53c11ca925c4a5f7d87cb9db919df7391216ae6d44595b665e27fd27",
+  "snapshot": "5d17fe54e1446aa72ae59fdbf89ad7b191b5f72a2e3e5fef56222585ae20ebf5",
+  "time": "2026-11-03T04:20:52Z",
+  "author": "Claude (side session)",
+  "message": "type release item tag: The version in Cargo.toml is bumped and the tag vX.Y.Z points at it",
+  "subjects": [],
+  "forced": false
+}

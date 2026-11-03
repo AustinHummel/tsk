@@ -1,0 +1,30 @@
+type
+{
+  "id": "release",
+  "title": "A tsk release",
+  "body": "What every release owes, whatever changed. The how is the release workflow.",
+  "items": [
+    {
+      "id": "tests",
+      "title": "Every test passes locally and in CI on all three platforms",
+      "body": "",
+      "reqs": []
+    },
+    {
+      "id": "tag",
+      "title": "The version in Cargo.toml is bumped and the tag vX.Y.Z points at it",
+      "body": "",
+      "reqs": [
+        {
+          "on": "item",
+          "reason": "tests: tag only green code",
+          "blocking": true
+        }
+      ]
+    }
+  ],
+  "docs": [
+    "README.md",
+    ".github/workflows/release.yml"
+  ]
+}

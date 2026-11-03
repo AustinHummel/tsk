@@ -1,0 +1,17 @@
+req
+{
+  "id": "r21",
+  "from": {
+    "kind": "task",
+    "id": "t33"
+  },
+  "on": "t32",
+  "reason": "tag only green code",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T04:21:16Z",
+  "from_item": [
+    "release",
+    "tag"
+  ]
+}

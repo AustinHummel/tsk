@@ -1,0 +1,11 @@
+type
+{
+  "id": "release",
+  "title": "A tsk release",
+  "body": "What every release owes, whatever changed. The how is the release workflow.",
+  "items": [],
+  "docs": [
+    "README.md",
+    ".github/workflows/release.yml"
+  ]
+}
