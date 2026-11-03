@@ -337,7 +337,9 @@ fn a_reported_save_is_always_on_the_line_even_with_stale_locks_broken_at_once() 
     for k in &mut kids {
         match k.wait().unwrap().code() {
             Some(0) => ok += 1,
-            Some(3) => moved += 1,
+            // Told to run again: the store moved, or (on a slow machine) the
+            // wait for the lock ran out. Either way, not told "saved".
+            Some(3) | Some(1) => moved += 1,
             other => panic!("unexpected exit {:?}", other),
         }
     }

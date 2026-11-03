@@ -615,6 +615,9 @@ impl Store {
         let path = self.dir.join("lock");
         let start = Instant::now();
         let mut delay = Duration::from_millis(5);
+        // Asking the OS whether a holder is alive spawns a process; ask once
+        // per distinct holder, not on every turn of the wait.
+        let mut checked: Option<(String, bool)> = None;
         loop {
             match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(mut f) => {
@@ -630,7 +633,16 @@ impl Store {
                     let holder = fs::read_to_string(&path).unwrap_or_default();
                     // A lock whose process has exited (a crash) is broken at
                     // once when that can be told; otherwise after `stale`.
-                    let dead = age.map(|a| a >= Duration::from_millis(200)).unwrap_or(false) && lock_holder_exited(&holder);
+                    let dead = age.map(|a| a >= Duration::from_millis(200)).unwrap_or(false) && {
+                        match &checked {
+                            Some((h, d)) if *h == holder => *d,
+                            _ => {
+                                let d = lock_holder_exited(&holder);
+                                checked = Some((holder.clone(), d));
+                                d
+                            }
+                        }
+                    };
                     if let Some(age) = age {
                         if dead || age >= stale {
                             // Take the file aside, then make sure it is the one
