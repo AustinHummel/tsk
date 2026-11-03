@@ -1,2 +1,3 @@
 * -text
-log text eol=lf
+log text eol=lf merge=union
+HEAD merge=tsk

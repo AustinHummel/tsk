@@ -431,9 +431,10 @@ impl Store {
                     return Ok(Lock { path });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let age = fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|m| m.elapsed().ok());
+                    // A file time a hair in the future (clock granularity) counts as age zero.
+                    let age = fs::metadata(&path).and_then(|m| m.modified()).ok().map(|m| m.elapsed().unwrap_or(Duration::ZERO));
                     if let Some(age) = age {
-                        if age > stale {
+                        if age >= stale {
                             let holder = fs::read_to_string(&path).unwrap_or_default();
                             let broken = self.dir.join(format!("lock.broken-{}", std::process::id()));
                             if fs::rename(&path, &broken).is_ok() {
