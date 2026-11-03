@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Edited",
+  "parent": "75340e8e6c007352e89165b9af78f46a256ae10f21d07d7f03d48882d8295487",
+  "snapshot": "7013f1e7b9b0b580d7fcda0816515c91db0954cecb583445d93bb04a40d86079",
+  "time": "2026-11-03T22:23:09Z",
+  "author": "fable-5.1 tsk-rules 2026-11-03",
+  "message": "edit 7 (body)",
+  "subjects": [
+    "t60"
+  ],
+  "forced": false
+}

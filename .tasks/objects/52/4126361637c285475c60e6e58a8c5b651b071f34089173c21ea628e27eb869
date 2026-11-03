@@ -1,0 +1,9 @@
+task
+{
+  "id": "t60",
+  "title": "Settle the commit, push and release rules",
+  "parent": null,
+  "seq": 60,
+  "body": "",
+  "types": []
+}

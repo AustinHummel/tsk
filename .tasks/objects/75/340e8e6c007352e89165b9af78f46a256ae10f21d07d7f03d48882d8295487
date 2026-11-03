@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Started",
+  "parent": "f49866914d82e94ce638143dd3974138555abaadd68258923f10429f9fd47bd4",
+  "snapshot": "2611035cdedd0cda916d76c43e9b8f1b09231e264c082750f904c9fd4fcb819c",
+  "time": "2026-11-03T22:23:03Z",
+  "author": "fable-5.1 tsk-rules 2026-11-03",
+  "message": "start 7",
+  "subjects": [
+    "t60"
+  ],
+  "forced": false
+}

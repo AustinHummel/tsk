@@ -100,3 +100,8 @@
 2026-11-03T22:08:27Z  f11385335f  set              doc 6 +docs/architecture.md  [6]  -- fable-5.1 tsk-onboarding 2026-11-03
 2026-11-03T22:14:16Z  27a983e9f5  set              doc 6 +.claude/skills/tsk-architecture/SKILL.md  [6]  -- fable-5.1 tsk-onboarding 2026-11-03
 2026-11-03T22:14:16Z  6054447d78  completed        complete 6  [6]  -- fable-5.1 tsk-onboarding 2026-11-03
+2026-11-03T22:22:57Z  f49866914d  created          add Settle the commit, push and release rules  [7]  -- fable-5.1 tsk-rules 2026-11-03
+2026-11-03T22:23:03Z  75340e8e6c  started          start 7  [7]  -- fable-5.1 tsk-rules 2026-11-03
+2026-11-03T22:23:09Z  964a6e4e75  edited           edit 7 (body)  [7]  -- fable-5.1 tsk-rules 2026-11-03
+2026-11-03T22:23:09Z  c8d4dd7d05  set              doc 7 +CLAUDE.md  [7]  -- fable-5.1 tsk-rules 2026-11-03
+2026-11-03T22:23:10Z  41d18a1296  completed        complete 7  [7]  -- fable-5.1 tsk-rules 2026-11-03

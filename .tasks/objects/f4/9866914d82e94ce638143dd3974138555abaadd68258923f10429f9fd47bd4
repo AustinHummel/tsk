@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "6054447d789390b932635cdf630d86527103fd9f53cb1fa8df2141ae26449bcc",
+  "snapshot": "2611035cdedd0cda916d76c43e9b8f1b09231e264c082750f904c9fd4fcb819c",
+  "time": "2026-11-03T22:22:57Z",
+  "author": "fable-5.1 tsk-rules 2026-11-03",
+  "message": "add Settle the commit, push and release rules",
+  "subjects": [
+    "t60"
+  ],
+  "forced": false
+}

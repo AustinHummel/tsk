@@ -1,0 +1,13 @@
+req
+{
+  "id": "r32",
+  "from": {
+    "kind": "person",
+    "id": "Austin, 2026-11-03"
+  },
+  "on": "t60",
+  "reason": "'3 thought 6 are good, but agents should be able to push to main and tag releases, at least until the first major release (1.0.0)'",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-03T22:22:57Z"
+}

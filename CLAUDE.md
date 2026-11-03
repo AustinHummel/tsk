@@ -176,7 +176,10 @@ binaries and publishes a GitHub release with `SHA256SUMS`. Versions:
 0.1.0 on 2026-10-30, 0.2.0 to 0.4.2 on 2026-11-02 and 11-03, each a root
 task in the store.
 
-Settled:
+The rules. Austin settled them 2026-11-03, answering the onboarding
+agent's six proposals (P1 to P6): "3 thought 6 are good, but agents
+should be able to push to main and tag releases, at least until the first
+major release (1.0.0)". The first three were settled before he ruled.
 
 - Commits are authored "Austin Hummel" (the repo's git identity) with the
   trailer `Co-Authored-By: <model name> <noreply@anthropic.com>` naming
@@ -184,24 +187,23 @@ Settled:
 - Never force-push, never rewrite `main`, never delete a tag.
 - CI must be green on three platforms before anything is tagged (the
   `release` type's first item).
-
-**Proposed, awaiting Austin's OK** (written 2026-11-03 by the onboarding
-agent; not his words). Until he rules, agents follow them as the stricter
-reading:
-
-- **P1. Agents never push `main`.** An agent works on a branch named for
-  its job (`agent-<job>`), pushes only that branch, and opens a pull
-  request against `main`, which is what runs CI on the three platforms
-  for a branch (CI triggers on pushes to `main` and on pull requests,
-  not on other branches). Austin merges. Direct pushes to `main` stay
-  his.
-- **P2. Only Austin tags a release.** A `v*` tag publishes public
-  binaries; an agent prepares a release (version bump, README, the
-  release task's items) on a branch and reports it ready, and he tags.
-- **P3. Versions.** Patch (`0.4.x`) for a fix that changes no command's
+- **Until 1.0.0, agents may push `main` and may tag releases** (Austin,
+  2026-11-03, above; it replaces the proposed "agents never push `main`"
+  and "only Austin tags"). A branch and a pull request stay allowed,
+  never required. CI runs on every push to `main`, so after pushing,
+  check that run and fix or revert a red `main` at once: `gh run list
+  --branch main --limit 1` where `gh` exists, or the API, which needs no
+  login for this public repo (`gh` is not installed on the development
+  machine, 2026-11-03):
+  `curl -s "https://api.github.com/repos/AustinHummel/tsk/actions/runs?branch=main&per_page=1"`
+  (read `status` and `conclusion`). At the first major release, 1.0.0,
+  this rule lapses: from then on, who may push `main` or tag is Austin's
+  to decide, and he has not yet said.
+- **Versions.** Patch (`0.4.x`) for a fix that changes no command's
   interface and no on-disk form; minor (`0.x.0`) for a new or changed
   command, or any change to what the store writes. The version in
   `Cargo.toml` and the tag always agree (the release type enforces it).
+  (P3.)
 
 ## Store format and upgrades
 
@@ -219,18 +221,19 @@ committed before and `tsk ready` and `tsk diff` clean after. A change to
 tsk that alters what the store writes is announced in the release notes
 as such.
 
-**Proposed, awaiting Austin's OK:**
+Settled by Austin, 2026-11-03 ("3 thought 6 are good", on the proposals
+P4 to P6 as written here):
 
-- **P4. Backward reading is unconditional.** tsk reads every store form
+- **Backward reading is unconditional.** tsk reads every store form
   any released version wrote (constraint 7); a release never requires
-  migrating a store by hand.
-- **P5. A store-level format version.** The first change to any on-disk
+  migrating a store by hand. (P4.)
+- **A store-level format version.** The first change to any on-disk
   form after 0.4.2 adds a `format` line to `.tasks/config` (or a
   `.tasks/format` file), written by `init` and by the first write of a
   newer binary, and a binary that meets a format newer than it knows
   refuses with one sentence naming the version needed, rather than
   misreading. This closes the gap above; it is its own task in the store
-  when it happens, not a drive-by.
-- **P6. The org fixes what the pilot finds.** A bug found by the org's
+  when it happens, not a drive-by. (P5.)
+- **The org fixes what the pilot finds.** A bug found by the org's
   use of tsk is a task here (with `--by` naming who hit it and how),
-  fixed on a branch, tested, and released by P1 to P3.
+  fixed, tested, and released under "Commit, push and release". (P6.)

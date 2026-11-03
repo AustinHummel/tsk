@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Completed",
+  "parent": "c8d4dd7d0532f8274f8e9ecddd0204179acdc750804e964e9fd83b2ed187c1af",
+  "snapshot": "82ff752ee2a67b8d2d651c2021a95d9484e99ab0f100b9903fc121f7c6a4d2fd",
+  "time": "2026-11-03T22:23:10Z",
+  "author": "fable-5.1 tsk-rules 2026-11-03",
+  "message": "complete 7",
+  "subjects": [
+    "t60"
+  ],
+  "forced": false
+}
