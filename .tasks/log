@@ -44,3 +44,5 @@
 2026-11-03T03:58:23Z  4a5c363aa8  completed        complete 2.2 2.3  [2.2 2.3]  -- Claude (side session)
 2026-11-03T03:58:23Z  a805a06522  completed        complete 2.4  [2.4]  -- Claude (side session)
 2026-11-03T03:58:23Z  627a4f1f8f  started          start 2.5  [2.5]  -- Claude (side session)
+2026-11-03T04:04:40Z  e361308dde  set              doc 2.5 +https://github.com/AustinHummel/tsk/releases/tag/v0.3.0  [2.5]  -- Claude (side session)
+2026-11-03T04:04:40Z  2e35603486  completed        complete 2.5  [2.5]  -- Claude (side session)

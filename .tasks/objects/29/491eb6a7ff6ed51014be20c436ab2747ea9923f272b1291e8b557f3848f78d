@@ -1,0 +1,12 @@
+task
+{
+  "id": "t25",
+  "title": "Docs and release 0.3.0",
+  "parent": "t20",
+  "seq": 25,
+  "body": "README section on merging; the agent-org doc's \"one store\" limit replaced; tag and release.",
+  "types": [],
+  "docs": [
+    "https://github.com/AustinHummel/tsk/releases/tag/v0.3.0"
+  ]
+}
