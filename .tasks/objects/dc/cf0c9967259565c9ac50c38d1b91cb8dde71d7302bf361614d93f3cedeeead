@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Edited",
+  "parent": "e2b6c90985725455db28db452ae741d49fd16b4a085627793caabc26efbbf00d",
+  "snapshot": "4bdb5f05848768e7d85f62beda020b786d77cdff6786b6c297dc88444ce8d123",
+  "time": "2026-11-03T13:47:17Z",
+  "author": "Claude (side session)",
+  "message": "edit 5.3 (body)",
+  "subjects": [
+    "t51"
+  ],
+  "forced": false
+}
