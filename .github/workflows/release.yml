@@ -30,7 +30,7 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             archive: tar.gz
-          - os: macos-13
+          - os: macos-latest # cross-compiled: Intel runners are scarce
             target: x86_64-apple-darwin
             archive: tar.gz
     steps:
