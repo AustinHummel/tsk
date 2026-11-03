@@ -5,7 +5,7 @@
 //! clone in Git.
 
 use crate::commands::{done, open_rw, say};
-use crate::commit::{self, Commit};
+use crate::commit::Commit;
 use crate::model::*;
 use anyhow::{anyhow, Result};
 use serde_json::json;
@@ -111,7 +111,7 @@ pub fn prune(before: Option<String>, dry_run: bool) -> Result<()> {
         say("nothing to prune");
         return Ok(());
     }
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Pruned, msg.clone(), vec![]))?;
+    let h = c.commit(Commit::new(EventKind::Pruned, msg.clone(), vec![]))?;
     done(&c.store, &h, &msg);
     Ok(())
 }

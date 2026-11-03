@@ -18,6 +18,9 @@ use std::sync::OnceLock;
 pub(crate) struct Ctx {
     pub store: Store,
     pub plan: Plan,
+    /// The event the plan was loaded from: the parent of any event this
+    /// command writes.
+    pub head: Option<Hash>,
     /// Per-leaf statuses HEAD implies (from the cache, or the history).
     pub leaf: std::collections::HashMap<TaskId, Status>,
     pub derived: Derived,
@@ -28,6 +31,11 @@ pub(crate) struct Ctx {
 }
 
 impl Ctx {
+    /// Write one event on top of the HEAD this context was loaded from.
+    pub fn commit(&self, c: Commit) -> Result<Hash> {
+        commit::write_on(&self.store, &self.plan, self.head.clone(), c)
+    }
+
     /// Every event, newest first. Read on first use.
     pub fn history(&self) -> &[(Hash, Event)] {
         self.history.get_or_init(|| self.store.history().unwrap_or_default())
@@ -49,12 +57,12 @@ pub(crate) fn store_open() -> Result<Store> {
 }
 
 fn load(store: Store, lock: Option<Lock>) -> Result<Ctx> {
-    let (plan, leaf) = match store.head_event()? {
-        None => (Plan::default(), std::collections::HashMap::new()),
-        Some((h, ev)) => (store.load_plan(&ev.snapshot)?, store.leaf_statuses_at(&h)?),
+    let (head, plan, leaf) = match store.head_event()? {
+        None => (None, Plan::default(), std::collections::HashMap::new()),
+        Some((h, ev)) => (Some(h.clone()), store.load_plan(&ev.snapshot)?, store.leaf_statuses_at(&h)?),
     };
     let derived = Derived::compute(&plan, &leaf);
-    Ok(Ctx { store, plan, leaf, derived, history: OnceLock::new(), _lock: lock })
+    Ok(Ctx { store, plan, head, leaf, derived, history: OnceLock::new(), _lock: lock })
 }
 
 /// Read-only: no lock. Readers see HEAD and its snapshot, both immutable.
@@ -204,7 +212,7 @@ pub fn init() -> Result<()> {
     let cwd = std::env::current_dir()?;
     let store = Store::init(&cwd)?;
     let plan = Plan::default();
-    let h = commit::write(&store, &plan, Commit::new(EventKind::Init, "init", vec![]))?;
+    let h = commit::write_on(&store, &plan, None, Commit::new(EventKind::Init, "init", vec![]))?;
     done(&store, &h, &format!("initialized {}", store.dir.display()));
     Ok(())
 }
@@ -222,7 +230,7 @@ pub fn add(title: String, body: Option<String>, by: Vec<String>, priority: Optio
         let (p, r) = parse_by(&b)?;
         add_req(&mut c, Requirer::Person(p), id.clone(), r, false, false, None);
     }
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Created, format!("add {}", title), vec![id.clone()]))?;
+    let h = c.commit(Commit::new(EventKind::Created, format!("add {}", title), vec![id.clone()]))?;
     done(&c.store, &h, &format!("created {}", c.plan.label(&id)));
     Ok(())
 }
@@ -316,7 +324,7 @@ pub fn breakdown(task: String, file: Option<String>, template: bool) -> Result<(
     }
     c.plan.tasks.get_mut(&id).unwrap().narrative = Some(bd.narrative.clone());
     let n = child_ids.len();
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::BrokenDown, format!("breakdown {} into {} children", c.plan.number_of(&id), n), subjects))?;
+    let h = c.commit(Commit::new(EventKind::BrokenDown, format!("breakdown {} into {} children", c.plan.number_of(&id), n), subjects))?;
     done(&c.store, &h, &format!("broke down {} into {} children", c.plan.label(&id), n));
     for cid in &child_ids {
         say(&format!("  {}", c.plan.label(cid)));
@@ -340,7 +348,7 @@ pub fn amend(parent: String, title: String, body: Option<String>, narrative: Opt
     }
     n.push_str(&format!("Amended {}: {}", commit::now(), narrative));
     p.narrative = Some(n);
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Amended, format!("amend {} with {}", c.plan.number_of(&pid), title), vec![pid.clone(), cid.clone()]))?;
+    let h = c.commit(Commit::new(EventKind::Amended, format!("amend {} with {}", c.plan.number_of(&pid), title), vec![pid.clone(), cid.clone()]))?;
     done(&c.store, &h, &format!("added {} under {}", c.plan.label(&cid), c.plan.label(&pid)));
     Ok(())
 }
@@ -382,7 +390,7 @@ pub fn edit(task: String, file: Option<String>, body: Option<String>, title: Opt
         return Ok(());
     }
     c.plan.tasks.insert(id.clone(), t);
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Edited, format!("edit {} ({})", c.plan.number_of(&id), changed.join(", ")), vec![id.clone()]))?;
+    let h = c.commit(Commit::new(EventKind::Edited, format!("edit {} ({})", c.plan.number_of(&id), changed.join(", ")), vec![id.clone()]))?;
     done(&c.store, &h, &format!("edited {}: {}", c.plan.label(&id), changed.join(", ")));
     Ok(())
 }
@@ -410,7 +418,7 @@ pub fn link(pred: String, succ: String, reason: String, conditional: bool) -> Re
     }
     let before = c.derived.loops.len();
     let rid = add_req(&mut c, Requirer::Task(s.clone()), p.clone(), reason.clone(), true, conditional, None);
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Linked, format!("link {} -> {}: {}", c.plan.number_of(&p), c.plan.number_of(&s), reason), vec![p.clone(), s.clone()]))?;
+    let h = c.commit(Commit::new(EventKind::Linked, format!("link {} -> {}: {}", c.plan.number_of(&p), c.plan.number_of(&s), reason), vec![p.clone(), s.clone()]))?;
     if conditional {
         done(&c.store, &h, &format!("{}: {} is tentative until {} is complete", rid, c.plan.label(&s), c.plan.label(&p)));
     } else {
@@ -427,7 +435,7 @@ pub fn require(from: String, on: String, reason: String) -> Result<()> {
         bail!("a task cannot require something of itself");
     }
     let rid = add_req(&mut c, Requirer::Task(f.clone()), o.clone(), reason.clone(), false, false, None);
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Required, format!("require {} of {}: {}", c.plan.number_of(&f), c.plan.number_of(&o), reason), vec![f.clone(), o.clone()]))?;
+    let h = c.commit(Commit::new(EventKind::Required, format!("require {} of {}: {}", c.plan.number_of(&f), c.plan.number_of(&o), reason), vec![f.clone(), o.clone()]))?;
     done(&c.store, &h, &format!("{}: {} requires of {}: {}", rid, c.plan.label(&f), c.plan.label(&o), reason));
     Ok(())
 }
@@ -436,7 +444,7 @@ pub fn by(task: String, person: String, reason: String) -> Result<()> {
     let mut c = open_rw()?;
     let id = c.plan.resolve(&task)?;
     let rid = add_req(&mut c, Requirer::Person(person.clone()), id.clone(), reason.clone(), false, false, None);
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Required, format!("{} requires {}: {}", person, c.plan.number_of(&id), reason), vec![id.clone()]))?;
+    let h = c.commit(Commit::new(EventKind::Required, format!("{} requires {}: {}", person, c.plan.number_of(&id), reason), vec![id.clone()]))?;
     done(&c.store, &h, &format!("{}: {} required by {}", rid, c.plan.label(&id), person));
     Ok(())
 }
@@ -468,7 +476,7 @@ pub fn move_req(req: String, from: Option<String>, on: Option<String>) -> Result
     }
     let before = c.derived.loops.len();
     c.plan.reqs.insert(req.clone(), r.clone());
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Moved, format!("move {}", req), subjects))?;
+    let h = c.commit(Commit::new(EventKind::Moved, format!("move {}", req), subjects))?;
     done(&c.store, &h, &format!("moved {}: {}", req, req_desc(&c.plan, &r)));
     note_loops(&c, before)
 }
@@ -480,7 +488,7 @@ pub fn unlink(req: String) -> Result<()> {
     if let Requirer::Task(t) = &r.from {
         subjects.push(t.clone());
     }
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Unlinked, format!("unlink {}: {}", req, r.reason), subjects))?;
+    let h = c.commit(Commit::new(EventKind::Unlinked, format!("unlink {}: {}", req, r.reason), subjects))?;
     done(&c.store, &h, &format!("removed {}", req));
     Ok(())
 }
@@ -537,7 +545,7 @@ pub fn set(target: String, pairs: Vec<String>, unset: Vec<String>, req: bool) ->
         say("nothing changed");
         return Ok(());
     }
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Set, format!("set {} {}", label, changed.join(" ")), subjects))?;
+    let h = c.commit(Commit::new(EventKind::Set, format!("set {} {}", label, changed.join(" ")), subjects))?;
     done(&c.store, &h, &format!("set {}: {}", label, changed.join(" ")));
     Ok(())
 }
@@ -578,7 +586,7 @@ pub fn doc(task: String, path: Option<String>, rm: Option<String>) -> Result<()>
         }
         format!("doc {} -{}", c.plan.number_of(&id), p)
     };
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Set, msg.clone(), vec![id.clone()]))?;
+    let h = c.commit(Commit::new(EventKind::Set, msg.clone(), vec![id.clone()]))?;
     done(&c.store, &h, &msg);
     Ok(())
 }
@@ -593,7 +601,7 @@ pub fn type_add(id: String, title: String, body: Option<String>, docs: Vec<Strin
     }
     let docs = docs.into_iter().map(|d| d.replace('\\', "/")).collect();
     c.plan.types.insert(id.clone(), TaskType { id: id.clone(), title: title.clone(), body, items: vec![], docs });
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::TypeAdded, format!("type {}: {}", id, title), vec![]))?;
+    let h = c.commit(Commit::new(EventKind::TypeAdded, format!("type {}: {}", id, title), vec![]))?;
     done(&c.store, &h, &format!("added type {} ({})", id, title));
     Ok(())
 }
@@ -643,7 +651,7 @@ pub fn type_item(ty: String, id: String, title: String, body: Option<String>, pe
     let docs = docs.into_iter().map(|d| d.replace('\\', "/")).collect();
     t.items.push(TypeItem { id: id.clone(), title: title.clone(), body, pending, reqs, when, docs });
     let affected = carriers(&c.plan, &ty);
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::TypeEdited, format!("type {} item {}: {}", ty, id, title), affected.clone()))?;
+    let h = c.commit(Commit::new(EventKind::TypeEdited, format!("type {} item {}: {}", ty, id, title), affected.clone()))?;
     done(&c.store, &h, &format!("added item {} to type {}", id, ty));
     if !affected.is_empty() {
         say(&format!("{} task(s) carry this type and now owe this item; review each and `tsk amend` it:", affected.len()));
@@ -666,7 +674,7 @@ pub fn type_edit_item(ty: String, item: String, title: Option<String>, body: Opt
         it.body = b;
     }
     let inst = instances_of(&c.plan, &ty, &item);
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::TypeEdited, format!("type {} edit item {}", ty, item), inst.clone()))?;
+    let h = c.commit(Commit::new(EventKind::TypeEdited, format!("type {} edit item {}", ty, item), inst.clone()))?;
     done(&c.store, &h, &format!("edited item {} of type {}", item, ty));
     if !inst.is_empty() {
         say(&format!("{} instance(s) carry this item's scope; review each, `tsk edit` it, `tsk uncomplete` it if it must reopen:", inst.len()));
@@ -784,7 +792,7 @@ pub fn apply(ty: String, task: String) -> Result<()> {
     }
     h.narrative = Some(narrative);
     let n = subjects.len() - 1;
-    let hash = commit::write(&c.store, &c.plan, Commit::new(EventKind::Applied, format!("apply {} to {}", ty, c.plan.number_of(&id)), subjects))?;
+    let hash = c.commit(Commit::new(EventKind::Applied, format!("apply {} to {}", ty, c.plan.number_of(&id)), subjects))?;
     done(&c.store, &hash, &format!("applied {} to {}: {} children", ty, c.plan.label(&id), n));
     for ch in c.plan.children(&id) {
         say(&format!("  {}", c.plan.label(&ch.id)));
@@ -801,7 +809,7 @@ pub fn spike(task: String) -> Result<()> {
     if c.derived.status(&id) == Status::Spike {
         bail!("{} is already a spike", c.plan.label(&id));
     }
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::FlaggedAsSpike, format!("spike {}", c.plan.number_of(&id)), vec![id.clone()]))?;
+    let h = c.commit(Commit::new(EventKind::FlaggedAsSpike, format!("spike {}", c.plan.number_of(&id)), vec![id.clone()]))?;
     done(&c.store, &h, &format!("flagged {} as a spike: prove it, then break it down", c.plan.label(&id)));
     Ok(())
 }
@@ -819,7 +827,7 @@ pub fn confirm(task: String) -> Result<()> {
     if n == 0 {
         bail!("{} is not tentative", c.plan.label(&id));
     }
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Confirmed, format!("confirm {}", c.plan.number_of(&id)), vec![id.clone()]))?;
+    let h = c.commit(Commit::new(EventKind::Confirmed, format!("confirm {}", c.plan.number_of(&id)), vec![id.clone()]))?;
     done(&c.store, &h, &format!("confirmed {}: it is real work now", c.plan.label(&id)));
     Ok(())
 }
@@ -901,7 +909,7 @@ fn transition(tasks: Vec<String>, force: bool, kind: EventKind) -> Result<()> {
         cm.group = ids.clone();
     }
     cm.forced = !problems.is_empty();
-    let h = commit::write(&c.store, &c.plan, cm)?;
+    let h = c.commit(cm)?;
     let labels: Vec<String> = ids.iter().map(|i| c.plan.label(i)).collect();
     done(&c.store, &h, &format!("{}{}: {}", if !problems.is_empty() { "FORCED " } else { "" }, kind.name(), labels.join("; ")));
     if completing {
@@ -936,7 +944,7 @@ pub fn pause(task: String) -> Result<()> {
     if c.derived.status(&id) != Status::InProgress {
         bail!("{} is not in progress", c.plan.label(&id));
     }
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Paused, format!("pause {}", c.plan.number_of(&id)), vec![id.clone()]))?;
+    let h = c.commit(Commit::new(EventKind::Paused, format!("pause {}", c.plan.number_of(&id)), vec![id.clone()]))?;
     done(&c.store, &h, &format!("paused {}", c.plan.label(&id)));
     Ok(())
 }
@@ -950,7 +958,7 @@ pub fn uncomplete(task: String) -> Result<()> {
     if c.derived.status(&id) != Status::Complete {
         bail!("{} is not complete", c.plan.label(&id));
     }
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Uncompleted, format!("uncomplete {}", c.plan.number_of(&id)), vec![id.clone()]))?;
+    let h = c.commit(Commit::new(EventKind::Uncompleted, format!("uncomplete {}", c.plan.number_of(&id)), vec![id.clone()]))?;
     done(&c.store, &h, &format!("reopened {}", c.plan.label(&id)));
     Ok(())
 }
@@ -961,7 +969,7 @@ pub fn drop(task: String, reason: String) -> Result<()> {
     if c.derived.status(&id) == Status::Dropped {
         bail!("{} is already dropped", c.plan.label(&id));
     }
-    let h = commit::write(&c.store, &c.plan, Commit::new(EventKind::Dropped, format!("drop {}: {}", c.plan.number_of(&id), reason), vec![id.clone()]))?;
+    let h = c.commit(Commit::new(EventKind::Dropped, format!("drop {}: {}", c.plan.number_of(&id), reason), vec![id.clone()]))?;
     done(&c.store, &h, &format!("dropped {} and everything under it: {}", c.plan.label(&id), reason));
     Ok(())
 }

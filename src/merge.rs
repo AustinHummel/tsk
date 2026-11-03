@@ -506,7 +506,7 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
     if out.resolved > 0 {
         msg.push_str(&format!("; {} conflict(s) resolved preferring {}", out.resolved, prefer.map(|p| p.name()).unwrap_or("?")));
     }
-    let h = commit::write(store, &rp.plan, Commit::new(EventKind::Merged, msg, vec![]))?;
+    let h = commit::write_on(store, &rp.plan, Some(prev.clone()), Commit::new(EventKind::Merged, msg, vec![]))?;
     // One reflog line for the whole merge: the way back is `tsk reset <old>`.
     store.reflog_append(Some(&ours), &h, &format!("merge {}: HEAD was {}", &theirs[..10], &ours[..10]))?;
     let history = store.history()?;

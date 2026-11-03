@@ -48,13 +48,14 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-/// Write the event. The caller holds the store lock (see `commands::open_rw`),
-/// so HEAD cannot move between reading the parent and setting the child.
-pub fn write(store: &Store, plan: &Plan, c: Commit) -> Result<Hash> {
+/// Write the event on top of `parent`: the event the plan was loaded
+/// from, never HEAD as re-read now. Advancing HEAD claims that parent, so
+/// if HEAD has moved on since the plan was read, nothing is written.
+pub fn write_on(store: &Store, plan: &Plan, parent: Option<Hash>, c: Commit) -> Result<Hash> {
     let snap_hash = plan.save(store)?;
     let ev = Event {
         kind: c.kind,
-        parent: store.head()?,
+        parent,
         snapshot: snap_hash,
         time: now(),
         author: store.author(),
