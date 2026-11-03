@@ -1,0 +1,18 @@
+event
+{
+  "kind": "Applied",
+  "parent": "8b0ec60e576636dd88679927c3c8f824378a0170afe1cf34e777bb3cedced9ed",
+  "snapshot": "b55eacb8cffab3a4e0d4c0275eae8b11dd465f0e92b147076fd346c3d66560e3",
+  "time": "2026-11-03T13:29:03Z",
+  "author": "Claude (side session)",
+  "message": "apply release to 5.5",
+  "subjects": [
+    "t53",
+    "t54",
+    "t55",
+    "t56",
+    "t57",
+    "t58"
+  ],
+  "forced": false
+}

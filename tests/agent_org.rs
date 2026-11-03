@@ -290,3 +290,58 @@ fn a_type_can_stand_for_a_process_with_docs_and_conditions() {
     assert!(p.ok(&["plan", "-a"]).contains("[x] 1.1 ship the fix"));
     assert!(p.ok(&["forced"]).contains("no forced events"));
 }
+
+#[test]
+fn a_commit_on_a_parent_already_advanced_is_refused_not_overwritten() {
+    let p = Proj::new("cas");
+    dana(&p);
+    let head = p.read(".tasks/HEAD").trim().to_string();
+    let log_before = p.read(".tasks/log");
+    // Another process has advanced from this HEAD (its claim exists), but
+    // this process still believes HEAD is here: the write must not land.
+    std::fs::create_dir_all(p.dir.join(".tasks/claims")).unwrap();
+    std::fs::write(p.dir.join(".tasks/claims").join(&head), "").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_tsk")).args(["add", "lost?"]).current_dir(&p.dir).output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "exit 3 says: run it again");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("the store moved") && err.contains("nothing was written"), "{}", err);
+    assert_eq!(p.read(".tasks/HEAD").trim(), head, "HEAD untouched");
+    assert_eq!(p.read(".tasks/log"), log_before, "no log line for a write that did not happen");
+    assert!(!p.ok(&["plan"]).contains("lost?"));
+    assert!(!p.dir.join(".tasks/lock").exists(), "the lock is released on the way out");
+    std::fs::remove_file(p.dir.join(".tasks/claims").join(&head)).unwrap();
+    p.ok(&["add", "fine now"]);
+    assert!(p.read(".tasks/.gitignore").contains("claims/"));
+}
+
+#[test]
+fn a_reported_save_is_always_on_the_line_even_with_stale_locks_broken_at_once() {
+    // The trial's scenario: lock.stale = 0, many writers at once. Every
+    // process that reports success must have its event on the line; the
+    // rest must say so and exit 3.
+    let p = Proj::new("stale0");
+    let store = p.store();
+    let before = p.ok(&["rev-list"]).lines().count();
+    let mut kids = Vec::new();
+    for i in 0..20 {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        cmd.args(["--store", &store, "add", &format!("task {}", i)]).env("TSK_LOCK_STALE", "0").env("TSK_LOCK_TIMEOUT", "20");
+        kids.push(cmd.spawn().unwrap());
+    }
+    let mut ok = 0;
+    let mut moved = 0;
+    for k in &mut kids {
+        match k.wait().unwrap().code() {
+            Some(0) => ok += 1,
+            Some(3) => moved += 1,
+            other => panic!("unexpected exit {:?}", other),
+        }
+    }
+    let after = p.ok(&["rev-list"]).lines().count();
+    assert_eq!(after - before, ok, "{} reported saved, {} on the line, {} told to retry", ok, after - before, moved);
+    assert_eq!(p.ok(&["plan"]).lines().count(), ok);
+    assert!(ok >= 1);
+    // The log agrees with the line.
+    let log_lines = p.read(".tasks/log").lines().filter(|l| !l.starts_with('#')).count();
+    assert_eq!(log_lines, after);
+}

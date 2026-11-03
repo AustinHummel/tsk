@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "cb27e044dd9fcee3d5d0f5d5fe0a900439370bdf886d892eea7b286fefafd84c",
+  "snapshot": "ea3705173a401cd99e6491747a84e581ad2df619b97238798c2a7ae62411ef24",
+  "time": "2026-11-03T13:29:02Z",
+  "author": "Claude (side session)",
+  "message": "add No write is ever lost (0.4.2)",
+  "subjects": [
+    "t48"
+  ],
+  "forced": false
+}

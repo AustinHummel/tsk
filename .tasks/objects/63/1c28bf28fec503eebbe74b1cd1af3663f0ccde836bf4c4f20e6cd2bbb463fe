@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "c8355783fedb35111f6798d200d604d59f7be8d9f2e26618f53d25d3ad268fd9",
+  "snapshot": "0db1d0e71d12f84bab9715823f461255e5b4424dfc6d4b1b2052254330cff367",
+  "time": "2026-11-03T13:29:02Z",
+  "author": "Claude (side session)",
+  "message": "link 5.1 -> 5.4: the test relies on the claim refusing the loser",
+  "subjects": [
+    "t49",
+    "t52"
+  ],
+  "forced": false
+}

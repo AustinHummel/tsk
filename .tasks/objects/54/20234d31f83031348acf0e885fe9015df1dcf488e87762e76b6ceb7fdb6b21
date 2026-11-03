@@ -1,0 +1,9 @@
+task
+{
+  "id": "t52",
+  "title": "Stress test of the reported scenario",
+  "parent": "t48",
+  "seq": 52,
+  "body": "Twenty writers with lock.stale at 0: every process that reports success is on the line, the rest exit 3 and say so.",
+  "types": []
+}

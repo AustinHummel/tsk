@@ -133,6 +133,17 @@ machine), and otherwise once it is older than `lock.stale` seconds
 with `tsk config` or per process with `TSK_LOCK_TIMEOUT` /
 `TSK_LOCK_STALE`.
 
+The lock is for turn-taking; correctness does not depend on it. Before
+HEAD moves from one event to the next, the writer claims the event it is
+moving from with an atomic create of `.tasks/claims/<event>`; a second
+writer that read the same HEAD finds the claim taken and stops with
+"the store moved ... nothing was written. Run it again", exit code 3.
+So two processes can never both commit on top of the same event, however
+the lock was obtained, broken, or misconfigured: a reported save is
+always on the line. Breaking a stale lock takes the file aside and checks
+it is the one that was judged stale, by token, handing back any newer
+lock it displaced; a displaced lock's owner sees its token gone and stops.
+
 Each event carries an author: `TSK_AUTHOR` if set, else the store's
 `author` config, else the OS user. A session that sets `TSK_AUTHOR` signs
 its own events on a shared store.

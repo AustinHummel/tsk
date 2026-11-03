@@ -1,0 +1,10 @@
+task
+{
+  "id": "t48",
+  "title": "No write is ever lost (0.4.2)",
+  "parent": null,
+  "seq": 48,
+  "body": "",
+  "types": [],
+  "narrative": "The guarantee (1) is the fix; (2) makes the trigger rare; (3) is the wider look Austin asked for; (4) proves the reported case; (5) ships it."
+}

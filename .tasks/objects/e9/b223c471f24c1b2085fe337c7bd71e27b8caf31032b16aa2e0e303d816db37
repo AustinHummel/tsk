@@ -1,0 +1,10 @@
+task
+{
+  "id": "t54",
+  "title": "Release 0.4.2 (core)",
+  "parent": "t53",
+  "seq": 54,
+  "body": "",
+  "types": [],
+  "core_of": "t53"
+}

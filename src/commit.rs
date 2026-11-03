@@ -65,11 +65,6 @@ pub fn write(store: &Store, plan: &Plan, c: Commit) -> Result<Hash> {
         replayed_from: None,
     };
     let hash = store.write_object(ObjectType::Event, &ev)?;
-    // Carry the status memo forward when the previous one is at hand.
-    if let Some(mut leaf) = ev.parent.as_deref().and_then(|p| store.cache_read::<std::collections::HashMap<TaskId, crate::state::Status>>("status", p)) {
-        crate::state::apply_event(&mut leaf, &ev);
-        store.cache_write("status", &hash, &leaf);
-    }
     // The log must end with the event HEAD names. A store from before the
     // log existed, or one whose log git merged as a union, gets its log
     // rewritten from history once.
@@ -84,6 +79,11 @@ pub fn write(store: &Store, plan: &Plan, c: Commit) -> Result<Hash> {
     }
     store.move_head(&hash, &format!("{}: {}", ev.kind.name(), ev.message))?;
     store.append_log(&log_line(&hash, &ev, plan))?;
+    // Carry the status memo forward when the previous one is at hand.
+    if let Some(mut leaf) = ev.parent.as_deref().and_then(|p| store.cache_read::<std::collections::HashMap<TaskId, crate::state::Status>>("status", p)) {
+        crate::state::apply_event(&mut leaf, &ev);
+        store.cache_write("status", &hash, &leaf);
+    }
     Ok(hash)
 }
 

@@ -481,7 +481,10 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
     if !out.conflicts.is_empty() || dry_run {
         return Ok(out);
     }
-    // Write: every replayed event in order, then the merge event.
+    // Write: every replayed event in order, then the merge event. The
+    // claim on our HEAD comes first, so nothing is written if another
+    // process has advanced it meanwhile.
+    store.claim(&ours)?;
     let mut prev = start_hash.clone();
     out.replayed.clear();
     for (item, mut ev, plan) in staged {

@@ -1,0 +1,17 @@
+task
+{
+  "id": "t57",
+  "title": "The release carries five archives plus SHA256SUMS, and one archive verified against it",
+  "parent": "t53",
+  "seq": 57,
+  "body": "",
+  "types": [],
+  "from_item": [
+    "release",
+    "assets"
+  ],
+  "docs": [
+    "README.md",
+    ".github/workflows/release.yml"
+  ]
+}

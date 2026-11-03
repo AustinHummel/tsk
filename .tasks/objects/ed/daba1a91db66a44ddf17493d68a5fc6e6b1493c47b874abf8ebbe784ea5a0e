@@ -1,0 +1,9 @@
+task
+{
+  "id": "t49",
+  "title": "Claim before advancing HEAD",
+  "parent": "t48",
+  "seq": 49,
+  "body": "Advancing HEAD from event p first claims p with an atomic create of `.tasks/claims/<p>`; a second writer on the same parent is refused with \"the store moved; nothing was written; run it again\" (exit 3). Correctness no longer depends on the lock at all. A reset releases its target's claim, since committing there again is legitimate.",
+  "types": []
+}

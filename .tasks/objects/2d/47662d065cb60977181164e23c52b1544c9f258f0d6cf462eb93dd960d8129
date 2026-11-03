@@ -1,0 +1,9 @@
+task
+{
+  "id": "t51",
+  "title": "Audit of the other shared files",
+  "parent": "t48",
+  "seq": 51,
+  "body": "Objects (content-addressed, temp + rename, a replaced file is identical), HEAD.tmp and log.tmp (now per process), the log and reflog (append-only, the log rebuilt when out of step), the cache (keyed by hash; written only after HEAD advances), claims (cleaned by prune after an hour).",
+  "types": []
+}

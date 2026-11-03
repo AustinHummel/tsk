@@ -1,0 +1,9 @@
+task
+{
+  "id": "t50",
+  "title": "Break only the lock that was judged stale",
+  "parent": "t48",
+  "seq": 50,
+  "body": "Locks carry a token; breaking takes the file aside, checks the token matches the one judged stale, and hands back any newer lock it displaced. A displaced lock's owner sees its token gone, and its drop no longer deletes a successor's lock.",
+  "types": []
+}

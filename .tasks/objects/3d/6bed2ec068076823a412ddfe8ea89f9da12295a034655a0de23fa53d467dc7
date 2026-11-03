@@ -1,0 +1,13 @@
+req
+{
+  "id": "r28",
+  "from": {
+    "kind": "task",
+    "id": "t52"
+  },
+  "on": "t49",
+  "reason": "the test relies on the claim refusing the loser",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T13:29:02Z"
+}

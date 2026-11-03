@@ -1,0 +1,13 @@
+req
+{
+  "id": "r27",
+  "from": {
+    "kind": "person",
+    "id": "Austin"
+  },
+  "on": "t48",
+  "reason": "an agent found that breaking a stale lock can take a newer one, after which two writers overwrite each other; with lock.stale at 0, 15 of 20 agents were told their task was saved but only 11 were",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-03T13:29:02Z"
+}

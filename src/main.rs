@@ -397,6 +397,7 @@ fn main() {
     };
     if let Err(e) = r {
         eprintln!("tsk: {:#}", e);
-        std::process::exit(1);
+        // 3: the store moved under the command; it is safe to run again.
+        std::process::exit(if e.downcast_ref::<store::StoreMoved>().is_some() { 3 } else { 1 });
     }
 }

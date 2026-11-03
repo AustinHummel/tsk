@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 pub const DIR: &str = ".tasks";
 
 /// What is ignored inside the store when it is committed with git.
-const GITIGNORE: &str = "# transient files of a running tsk, its local reflog, and its disposable cache\nlock\nlock.broken-*\nHEAD.tmp\nlog.tmp\n*.EDIT\n*.tmp\nreflog\ncache/\n";
+const GITIGNORE: &str = "# transient files of a running tsk, its local reflog, and its disposable cache\nlock\nlock.broken-*\nlock.breaking-*\nHEAD.tmp*\nlog.tmp*\n*.EDIT\n*.tmp\nreflog\ncache/\nclaims/\n";
 
 /// Objects are named by the hash of their bytes: git must never convert
 /// their line endings. The log stays diffable.
@@ -85,16 +85,44 @@ impl HeadFile {
     }
 }
 
-/// Holds `.tasks/lock` until dropped.
+/// Holds `.tasks/lock` until dropped. The token tells this lock from any
+/// other process's: the file is removed on drop only if it is still ours.
 pub struct Lock {
     path: PathBuf,
+    token: String,
+}
+
+impl Lock {
+    /// Whether `.tasks/lock` still carries our token.
+    pub fn held(&self) -> bool {
+        lock_token(&fs::read_to_string(&self.path).unwrap_or_default()).as_deref() == Some(self.token.as_str())
+    }
 }
 
 impl Drop for Lock {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        if self.held() {
+            let _ = fs::remove_file(&self.path);
+        }
     }
 }
+
+fn lock_token(content: &str) -> Option<String> {
+    content.lines().find_map(|l| l.strip_prefix("token ")).map(|t| t.trim().to_string())
+}
+
+/// Another process committed on top of the HEAD this command read, so its
+/// change was not written. The command is safe to run again.
+#[derive(Debug)]
+pub struct StoreMoved(pub String);
+
+impl std::fmt::Display for StoreMoved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the store moved while this command ran: another process committed on top of {}; nothing was written. Run it again.", &self.0[..10.min(self.0.len())])
+    }
+}
+
+impl std::error::Error for StoreMoved {}
 
 impl Store {
     pub fn init(at: &Path) -> Result<Store> {
@@ -448,7 +476,7 @@ impl Store {
 
     /// Write HEAD with a merge still to perform.
     pub fn set_head_pending(&self, ours: &str, theirs: &str) -> Result<()> {
-        let tmp = self.dir.join("HEAD.tmp");
+        let tmp = self.dir.join(format!("HEAD.tmp{}", std::process::id()));
         fs::write(&tmp, format!("{}\nmerge {}\n", ours, theirs))?;
         fs::rename(tmp, self.dir.join("HEAD"))?;
         Ok(())
@@ -463,7 +491,7 @@ impl Store {
             s.push_str(&crate::commit::log_line(h, e, plan));
             s.push('\n');
         }
-        let tmp = self.dir.join("log.tmp");
+        let tmp = self.dir.join(format!("log.tmp{}", std::process::id()));
         fs::write(&tmp, s)?;
         fs::rename(tmp, self.dir.join("log"))?;
         Ok(())
@@ -477,16 +505,36 @@ impl Store {
     }
 
     pub fn set_head(&self, hash: &str) -> Result<()> {
-        let tmp = self.dir.join("HEAD.tmp");
+        let tmp = self.dir.join(format!("HEAD.tmp{}", std::process::id()));
         fs::write(&tmp, format!("{}\n", hash))?;
         fs::rename(tmp, self.dir.join("HEAD"))?;
         Ok(())
     }
 
-    /// Move HEAD and record the move in `.tasks/reflog`, so any earlier
+    /// Claim the right to advance HEAD from `from`: an atomic create of
+    /// `.tasks/claims/<from>`. Only one process ever succeeds for a given
+    /// parent, so no event can be committed on top of a parent that was
+    /// already committed on top of, whatever happened to the lock. A claim
+    /// that already exists means the store moved under this command.
+    pub fn claim(&self, from: &str) -> Result<()> {
+        let dir = self.dir.join("claims");
+        fs::create_dir_all(&dir)?;
+        self.ensure_ignored("claims/");
+        match fs::OpenOptions::new().write(true).create_new(true).open(dir.join(from)) {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(StoreMoved(from.to_string()).into()),
+            Err(e) => Err(e).with_context(|| format!("claiming {}", from)),
+        }
+    }
+
+    /// Move HEAD from its current event to `hash`, claiming the current
+    /// event first, and record the move in `.tasks/reflog` so any earlier
     /// state can be found and returned to with `tsk reset`.
     pub fn move_head(&self, hash: &str, what: &str) -> Result<()> {
         let old = self.head()?;
+        if let Some(o) = &old {
+            self.claim(o)?;
+        }
         self.set_head(hash)?;
         self.reflog_append(old.as_deref(), hash, what)
     }
@@ -571,8 +619,10 @@ impl Store {
             match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(mut f) => {
                     let args: Vec<String> = std::env::args().skip(1).collect();
-                    let _ = writeln!(f, "pid {}\ntime {}\ncmd {}", std::process::id(), crate::commit::now(), args.join(" "));
-                    return Ok(Lock { path });
+                    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+                    let token = format!("{:x}-{:x}", nanos, std::process::id());
+                    let _ = writeln!(f, "pid {}\ntoken {}\ntime {}\ncmd {}", std::process::id(), token, crate::commit::now(), args.join(" "));
+                    return Ok(Lock { path, token });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                     // A file time a hair in the future (clock granularity) counts as age zero.
@@ -583,11 +633,22 @@ impl Store {
                     let dead = age.map(|a| a >= Duration::from_millis(200)).unwrap_or(false) && lock_holder_exited(&holder);
                     if let Some(age) = age {
                         if dead || age >= stale {
-                            let broken = self.dir.join(format!("lock.broken-{}", std::process::id()));
-                            if fs::rename(&path, &broken).is_ok() {
-                                let _ = fs::remove_file(&broken);
-                                let why = if dead { "its process has exited".to_string() } else { format!("{}s old", age.as_secs()) };
-                                eprintln!("tsk: broke a stale lock ({}; {})", why, holder.replace('\n', "; ").trim_end_matches("; "));
+                            // Take the file aside, then make sure it is the one
+                            // we judged: a newer lock may have replaced it since
+                            // we looked. If so, give it back.
+                            let aside = self.dir.join(format!("lock.breaking-{}", std::process::id()));
+                            if fs::rename(&path, &aside).is_ok() {
+                                let taken = fs::read_to_string(&aside).unwrap_or_default();
+                                let same = lock_token(&taken) == lock_token(&holder) && !holder.is_empty();
+                                if same {
+                                    let _ = fs::remove_file(&aside);
+                                    let why = if dead { "its process has exited".to_string() } else { format!("{}s old", age.as_secs()) };
+                                    eprintln!("tsk: broke a stale lock ({}; {})", why, holder.replace('\n', "; ").trim_end_matches("; "));
+                                } else if fs::rename(&aside, &path).is_err() {
+                                    // A third process took the lock meanwhile; the
+                                    // one we displaced will see its token gone.
+                                    let _ = fs::remove_file(&aside);
+                                }
                                 continue;
                             }
                         }

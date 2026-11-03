@@ -76,6 +76,19 @@ pub fn prune(before: Option<String>, dry_run: bool) -> Result<()> {
             c.store.remove_object(&h)?;
         }
     }
+    // Claims older than an hour guard nothing any more: a process that read
+    // HEAD that long ago and is still trying to advance it would have hit
+    // the lock timeout many times over.
+    if !dry_run {
+        if let Ok(rd) = std::fs::read_dir(c.store.dir.join("claims")) {
+            for e in rd.flatten() {
+                let old = e.metadata().and_then(|m| m.modified()).ok().and_then(|m| m.elapsed().ok()).map(|a| a.as_secs() > 3600).unwrap_or(false);
+                if old {
+                    let _ = std::fs::remove_file(e.path());
+                }
+            }
+        }
+    }
     let total: u64 = c.store.all_objects()?.iter().map(|(_, s)| s).sum();
     let msg = format!(
         "prune{}: {} object(s), {} KB{}; {} event(s) shallow; store now {} KB",
