@@ -1,0 +1,13 @@
+req
+{
+  "id": "r17",
+  "from": {
+    "kind": "person",
+    "id": "Austin"
+  },
+  "on": "t26",
+  "reason": "a bad merge must be revertable like a bad git merge; and an agent org's processes may map to task types",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-03T04:15:55Z"
+}

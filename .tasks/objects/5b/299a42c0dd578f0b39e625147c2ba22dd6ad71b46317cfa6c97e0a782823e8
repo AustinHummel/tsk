@@ -1,0 +1,9 @@
+task
+{
+  "id": "t29",
+  "title": "Guidance for process-shaped types",
+  "parent": "t26",
+  "seq": 29,
+  "body": "A section for agent orgs on when a process is a type: the items are the scope a process owes, never its steps; the agent keeps the how. With the care Austin asked for about being prescriptive.",
+  "types": []
+}

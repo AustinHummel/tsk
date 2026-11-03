@@ -1,0 +1,9 @@
+task
+{
+  "id": "t28",
+  "title": "Types carry docs",
+  "parent": "t26",
+  "seq": 28,
+  "body": "A type and its items can link documents (the skill or process they stand for); instances created by `apply` inherit the item's docs, so `context` on an instance shows the process one hop away.",
+  "types": []
+}

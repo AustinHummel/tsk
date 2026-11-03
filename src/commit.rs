@@ -77,7 +77,7 @@ pub fn write(store: &Store, plan: &Plan, c: Commit) -> Result<Hash> {
         let history = store.history()?;
         store.rebuild_log(&history, plan)?;
     }
-    store.set_head(&hash)?;
+    store.move_head(&hash, &format!("{}: {}", ev.kind.name(), ev.message))?;
     store.append_log(&log_line(&hash, &ev, plan))?;
     Ok(hash)
 }

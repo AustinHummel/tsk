@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 pub const DIR: &str = ".tasks";
 
 /// What is ignored inside the store when it is committed with git.
-const GITIGNORE: &str = "# transient files of a running tsk\nlock\nlock.broken-*\nHEAD.tmp\n*.EDIT\n*.tmp\n";
+const GITIGNORE: &str = "# transient files of a running tsk, and its local reflog\nlock\nlock.broken-*\nHEAD.tmp\nlog.tmp\n*.EDIT\n*.tmp\nreflog\n";
 
 /// Objects are named by the hash of their bytes: git must never convert
 /// their line endings. The log stays diffable.
@@ -27,6 +27,16 @@ const LOG_HEADER: &str = "# tsk event log: one line per event, oldest first. tim
 
 pub struct Store {
     pub dir: PathBuf,
+}
+
+/// One move of HEAD.
+#[derive(Debug, Clone)]
+pub struct ReflogEntry {
+    pub old: Option<Hash>,
+    pub new: Hash,
+    pub time: String,
+    pub author: String,
+    pub what: String,
 }
 
 /// What `.tasks/HEAD` says.
@@ -370,6 +380,39 @@ impl Store {
         fs::write(&tmp, format!("{}\n", hash))?;
         fs::rename(tmp, self.dir.join("HEAD"))?;
         Ok(())
+    }
+
+    /// Move HEAD and record the move in `.tasks/reflog`, so any earlier
+    /// state can be found and returned to with `tsk reset`.
+    pub fn move_head(&self, hash: &str, what: &str) -> Result<()> {
+        let old = self.head()?;
+        self.set_head(hash)?;
+        self.reflog_append(old.as_deref(), hash, what)
+    }
+
+    /// One line per HEAD move, oldest first: `old new time\tauthor\twhat`.
+    /// Local to this copy, like git's reflog; never committed.
+    pub fn reflog_append(&self, old: Option<&str>, new: &str, what: &str) -> Result<()> {
+        let mut f = fs::OpenOptions::new().append(true).create(true).open(self.dir.join("reflog"))?;
+        writeln!(f, "{} {} {}\t{}\t{}", old.unwrap_or("-"), new, crate::commit::now(), self.author(), what.replace(['\n', '\r', '\t'], " "))?;
+        Ok(())
+    }
+
+    /// The reflog, newest first.
+    pub fn reflog(&self) -> Result<Vec<ReflogEntry>> {
+        let text = fs::read_to_string(self.dir.join("reflog")).unwrap_or_default();
+        let mut out = Vec::new();
+        for line in text.lines() {
+            let mut parts = line.splitn(3, '\t');
+            let head = parts.next().unwrap_or("");
+            let author = parts.next().unwrap_or("").to_string();
+            let what = parts.next().unwrap_or("").to_string();
+            let mut h = head.split_whitespace();
+            let (Some(old), Some(new), Some(time)) = (h.next(), h.next(), h.next()) else { continue };
+            out.push(ReflogEntry { old: if old == "-" { None } else { Some(old.to_string()) }, new: new.to_string(), time: time.to_string(), author, what });
+        }
+        out.reverse();
+        Ok(out)
     }
 
     pub fn head_event(&self) -> Result<Option<(Hash, Event)>> {

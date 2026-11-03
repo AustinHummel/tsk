@@ -1,0 +1,9 @@
+task
+{
+  "id": "t27",
+  "title": "Reflog and reset",
+  "parent": "t26",
+  "seq": 27,
+  "body": "Every HEAD move is appended to `.tasks/reflog` (old, new, time, author, what). `tsk reflog` lists it; `tsk reset <event>` moves HEAD to any event whose plan can still be read, recording the move. The merge event's message names the pre-merge HEAD, so the log itself points at the way back. `prune` keeps everything the reflog reaches.",
+  "types": []
+}

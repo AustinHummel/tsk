@@ -259,6 +259,13 @@ enum Cmd {
     },
     /// Configure git to hand `.tasks/HEAD` merges to tsk (once per machine).
     GitSetup,
+    /// Every move of HEAD on this copy, newest first: the way back from any merge or reset.
+    Reflog {
+        #[arg(short = 'n', long)]
+        limit: Option<usize>,
+    },
+    /// Move HEAD to an earlier (or any) event, recorded in the reflog. Nothing is deleted.
+    Reset { event: String },
     /// Read or set config (`author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`).
     Config { key: Option<String>, value: Option<String> },
 
@@ -370,6 +377,8 @@ fn main() {
         Cmd::Prune { before, dry_run } => prune::prune(before, dry_run),
         Cmd::Merge { theirs, prefer, dry_run, git } => merge::merge(theirs, prefer, dry_run, git),
         Cmd::GitSetup => merge::git_setup(),
+        Cmd::Reflog { limit } => commands::reflog(limit, json),
+        Cmd::Reset { event } => commands::reset(event),
         Cmd::MergeDriver { ours, theirs } => merge::merge_driver(ours, theirs),
         Cmd::Config { key, value } => commands::config(key, value),
         Cmd::CatObject { hash } => commands::cat_object(hash),

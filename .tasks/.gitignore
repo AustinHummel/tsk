@@ -1,7 +1,8 @@
-# transient files of a running tsk
+# transient files of a running tsk, and its local reflog
 lock
 lock.broken-*
 HEAD.tmp
 log.tmp
 *.EDIT
 *.tmp
+reflog

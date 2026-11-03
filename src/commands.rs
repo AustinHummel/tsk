@@ -952,6 +952,54 @@ pub fn config(key: Option<String>, value: Option<String>) -> Result<()> {
     Ok(())
 }
 
+pub fn reflog(limit: Option<usize>, json: bool) -> Result<()> {
+    let store = store_open()?;
+    let entries = store.reflog()?;
+    let rows: Vec<_> = entries.iter().take(limit.unwrap_or(usize::MAX)).collect();
+    if json {
+        let v: Vec<_> = rows.iter().map(|e| json!({"old": e.old, "new": e.new, "time": e.time, "author": e.author, "what": e.what})).collect();
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        return Ok(());
+    }
+    if rows.is_empty() {
+        println!("no moves recorded on this copy");
+        return Ok(());
+    }
+    for e in rows {
+        let was = e.old.as_deref().map(|o| format!("  (was {})", &o[..10])).unwrap_or_default();
+        println!("{}  {}  {}{}", &e.new[..10], e.time, e.what, was);
+    }
+    Ok(())
+}
+
+/// Move HEAD to any event whose plan can still be read. The events after
+/// it stay in the store, and the reflog remembers where HEAD was.
+pub fn reset(event: String) -> Result<()> {
+    let store = store_open()?;
+    let _lock = store.lock()?;
+    let h = store.resolve_hash(&event)?;
+    let ev: Event = store.read_object(ObjectType::Event, &h).with_context(|| format!("{} is not an event", &h[..10]))?;
+    let snap = store.read_snapshot(&ev.snapshot).with_context(|| format!("event {}", &h[..10]))?;
+    let old = store.head()?;
+    if old.as_deref() == Some(h.as_str()) {
+        say(&format!("HEAD is already at {}", &h[..10]));
+        return Ok(());
+    }
+    store.move_head(&h, &format!("reset to {}: {} {}", &h[..10], ev.kind.name(), ev.message))?;
+    let plan = Plan::load(&store, &snap)?;
+    let history = store.history()?;
+    store.rebuild_log(&history, &plan)?;
+    if json_mode() {
+        println!("{}", json!({"head": h, "was": old, "kind": ev.kind.name(), "message": ev.message, "time": ev.time}));
+    } else {
+        println!("HEAD is now at {}  {}  {}", &h[..10], ev.kind.name(), ev.message);
+        if let Some(o) = old {
+            println!("it was {}; `tsk reset {}` returns there (see `tsk reflog`)", &o[..10], &o[..10]);
+        }
+    }
+    Ok(())
+}
+
 // ===== plumbing ============================================================
 
 pub fn cat_object(hash: String) -> Result<()> {

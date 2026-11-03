@@ -1,0 +1,13 @@
+req
+{
+  "id": "r20",
+  "from": {
+    "kind": "task",
+    "id": "t30"
+  },
+  "on": "t29",
+  "reason": "ship after the guidance",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T04:15:55Z"
+}

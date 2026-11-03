@@ -1,0 +1,17 @@
+event
+{
+  "kind": "BrokenDown",
+  "parent": "104ef430c88ecdece886da5ab6759e63479c7de8244d229e86377a79a7758c47",
+  "snapshot": "d6cf5804b089416df0e998473f7a532ffac75e0b74ad0775516a7d656bc703f8",
+  "time": "2026-11-03T04:15:55Z",
+  "author": "Claude (side session)",
+  "message": "breakdown 3 into 4 children",
+  "subjects": [
+    "t26",
+    "t27",
+    "t28",
+    "t29",
+    "t30"
+  ],
+  "forced": false
+}

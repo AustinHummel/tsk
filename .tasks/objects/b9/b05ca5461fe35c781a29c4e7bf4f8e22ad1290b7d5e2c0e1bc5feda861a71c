@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "0f571b0aae9c9ecf5a95ac23654f2ad21eaa5d0b1317edc95172571fd6158d14",
+  "snapshot": "073f2ddeb25816b2a57b17d7dab5d7e297ee4ce12d1dff7ddb72d25a4fcdcf73",
+  "time": "2026-11-03T04:15:55Z",
+  "author": "Claude (side session)",
+  "message": "link 3.1 -> 3.4: ship after the failsafe",
+  "subjects": [
+    "t27",
+    "t30"
+  ],
+  "forced": false
+}

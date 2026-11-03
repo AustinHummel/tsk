@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "2e356034861105ca303ecd290c50726a62b807429ee295873ebcf5aa644ca4c0",
+  "snapshot": "c23acf54ddeac151020a281faf771addab965220e9f00a862ef3349eb4b49c88",
+  "time": "2026-11-03T04:15:55Z",
+  "author": "Claude (side session)",
+  "message": "add A way back from any merge, and types as processes (0.4)",
+  "subjects": [
+    "t26"
+  ],
+  "forced": false
+}

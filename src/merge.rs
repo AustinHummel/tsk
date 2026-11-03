@@ -389,7 +389,7 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
         out.replayed = their_seg.iter().map(|i| (i.hash.clone(), i.hash.clone())).collect();
         if !dry_run {
             store.read_snapshot(&store.read_object::<Event>(ObjectType::Event, theirs)?.snapshot)?;
-            store.set_head(theirs)?;
+            store.move_head(theirs, &format!("merge {} (fast-forward)", &theirs[..10]))?;
             let plan = Plan::load(store, &store.head_snapshot()?)?;
             let history = store.history()?;
             store.rebuild_log(&history, &plan)?;
@@ -490,7 +490,7 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
         prev = h;
     }
     store.set_head(&prev)?;
-    let mut msg = format!("merge {}: {} event(s) replayed", &theirs[..10], out.replayed.len());
+    let mut msg = format!("merge {} (from {}): {} event(s) replayed", &theirs[..10], &ours[..10], out.replayed.len());
     if out.ours_rewritten > 0 {
         msg.push_str(&format!(", {} of ours reordered", out.ours_rewritten));
     }
@@ -502,6 +502,8 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
         msg.push_str(&format!("; {} conflict(s) resolved preferring {}", out.resolved, prefer.map(|p| p.name()).unwrap_or("?")));
     }
     let h = commit::write(store, &rp.plan, Commit::new(EventKind::Merged, msg, vec![]))?;
+    // One reflog line for the whole merge: the way back is `tsk reset <old>`.
+    store.reflog_append(Some(&ours), &h, &format!("merge {}: HEAD was {}", &theirs[..10], &ours[..10]))?;
     let history = store.history()?;
     store.rebuild_log(&history, &rp.plan)?;
     out.head = Some(h);

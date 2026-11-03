@@ -41,6 +41,28 @@ pub fn prune(before: Option<String>, dry_run: bool) -> Result<()> {
     if !found_cutoff {
         anyhow::bail!("{} is not in this store's history", before.unwrap());
     }
+    // Everything the reflog can still return to stays whole: every event on
+    // those lines, with their snapshots, so `tsk reset` keeps working.
+    let mut roots: BTreeSet<Hash> = BTreeSet::new();
+    for e in c.store.reflog()? {
+        roots.insert(e.new.clone());
+        if let Some(o) = e.old {
+            roots.insert(o);
+        }
+    }
+    for r in roots {
+        if !c.store.has_object(&r) || keep.contains(&r) {
+            continue;
+        }
+        for (h, ev) in c.store.history_from(Some(r))? {
+            if !keep.insert(h) {
+                break;
+            }
+            if c.store.has_object(&ev.snapshot) {
+                c.store.snapshot_closure(&ev.snapshot, &mut keep)?;
+            }
+        }
+    }
     let _ = head;
     let mut removed = 0usize;
     let mut bytes = 0u64;

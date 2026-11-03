@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "b9b05ca5461fe35c781a29c4e7bf4f8e22ad1290b7d5e2c0e1bc5feda861a71c",
+  "snapshot": "6a43bc6d54335f23e2525f4f23fe3426ef5dd3aaa04b0c2ca8be5549c7f8429e",
+  "time": "2026-11-03T04:15:55Z",
+  "author": "Claude (side session)",
+  "message": "link 3.2 -> 3.3: the guidance refers to docs on types",
+  "subjects": [
+    "t28",
+    "t29"
+  ],
+  "forced": false
+}

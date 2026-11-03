@@ -146,6 +146,10 @@ fn git_merges_resolve_by_markers_or_by_the_driver() {
     git(&clone.dir, &["add", "-A"]);
     git(&clone.dir, &["commit", "-qm", "theirs"]);
     // Without the driver: git leaves markers in HEAD; the log merges as a union.
+    // (A machine with `tsk git-setup` done would resolve it; force git's
+    // own text merge for this phase, as a machine without the driver does.)
+    std::fs::create_dir_all(clone.dir.join(".git/info")).unwrap();
+    std::fs::write(clone.dir.join(".git/info/attributes"), ".tasks/HEAD merge=text\n").unwrap();
     git(&clone.dir, &["fetch", "-q"]);
     let m = git(&clone.dir, &["merge", "origin/master", "origin/main"]);
     let m = if m.contains("not something we can merge") { git(&clone.dir, &["merge", "origin/master"]) } else { m };
@@ -161,6 +165,7 @@ fn git_merges_resolve_by_markers_or_by_the_driver() {
     git(&clone.dir, &["add", "-A"]);
     git(&clone.dir, &["commit", "-qm", "merged"]);
     assert!(git(&clone.dir, &["status", "--short"]).trim().is_empty());
+    std::fs::remove_file(clone.dir.join(".git/info/attributes")).unwrap();
     // With the driver: the git merge is clean, HEAD carries the pending
     // merge, and the next tsk command performs it.
     let exe = env!("CARGO_BIN_EXE_tsk").replace('\\', "/");
@@ -206,4 +211,37 @@ fn a_pending_merge_with_conflicts_blocks_writes_and_warns_reads() {
     assert!(a.ok(&["show", "1.1"]).contains("alice"));
     assert_eq!(a.read(".tasks/HEAD").lines().count(), 1);
     a.ok(&["add", "another"]);
+}
+
+#[test]
+fn any_merge_can_be_undone_with_reset_and_the_reflog() {
+    let a = Proj::new("undo-a");
+    dana(&a);
+    let b = Proj::new("undo-b");
+    copy_store(&a.dir, &b.dir);
+    a.ok(&["add", "alice's root"]);
+    b.ok(&["add", "bob's root"]);
+    b.ok(&["complete", "1.1"]);
+    bring_objects(&b.dir, &a.dir);
+    let before = head(&a);
+    let out = a.ok(&["merge", &head(&b)]);
+    assert!(out.contains("merged"), "{}", out);
+    let after = head(&a);
+    assert!(a.ok(&["log", "-n", "1"]).contains(&format!("(from {})", &before[..10])), "the merge event names the pre-merge HEAD");
+    let reflog = a.ok(&["reflog"]);
+    assert!(reflog.contains(&format!("HEAD was {}", &before[..10])), "{}", reflog);
+    assert!(reflog.lines().next().unwrap().starts_with(&after[..10]), "{}", reflog);
+    // Back to before the merge: the plan is ours alone again, nothing lost.
+    let out = a.ok(&["reset", &before[..10]]);
+    assert!(out.contains("HEAD is now at") && out.contains(&after[..10]), "{}", out);
+    let plan = a.ok(&["plan", "-a"]);
+    assert!(plan.contains("alice's root") && !plan.contains("bob's root") && plan.contains("[ ] 1.1"), "{}", plan);
+    assert!(a.ok(&["log"]).lines().count() == a.ok(&["rev-list"]).lines().count(), "the log is rebuilt for the restored line");
+    // And forward again, even after a prune: the reflog keeps the other line whole.
+    a.ok(&["prune"]);
+    a.ok(&["reset", &after]);
+    assert!(a.ok(&["plan", "-a"]).contains("bob's root"));
+    assert!(a.ok(&["reflog"]).lines().count() >= 4);
+    assert!(!a.read(".tasks/.gitignore").is_empty() && a.read(".tasks/.gitignore").contains("reflog"), "the reflog is local");
+    assert!(a.fails(&["reset", "0000"]).contains("no object"));
 }

@@ -235,6 +235,15 @@ reads the conflict markers git left in `HEAD`. The log merges as a union
 and is rebuilt from history after a merge, or whenever it is found out of
 step. After either path, commit `.tasks/` as usual.
 
+**Any merge, or anything else, can be undone.** Nothing is ever deleted
+by a merge; HEAD moves. Every move of HEAD is recorded in `.tasks/reflog`
+(local to the copy, like git's), the merge event's message names the
+pre-merge HEAD, and `tsk reset <event>` moves HEAD to any event whose
+plan can still be read, rebuilding the log; `tsk reflog` lists the moves
+with where each came from. `prune` keeps whole every line the reflog can
+return to. So a merge you don't like is `tsk reset <the HEAD it names>`,
+and the merged line is still there to come back to.
+
 `tsk prune --before <event>` removes the snapshots of older events and the
 objects only they reach, so a long history stays small; every event and
 every log line stay, and a pruned event's plan is reported as pruned when

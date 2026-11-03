@@ -1,0 +1,13 @@
+req
+{
+  "id": "r19",
+  "from": {
+    "kind": "task",
+    "id": "t29"
+  },
+  "on": "t28",
+  "reason": "the guidance refers to docs on types",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-03T04:15:55Z"
+}
