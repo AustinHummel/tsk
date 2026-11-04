@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Completed",
+  "parent": "e1be9f6e3600faea1de6dea46308c84c0de16ede54f37e269a7dac7ba91435a7",
+  "snapshot": "281e0d43664805f3078cefdebdc96a468a8f1b6811353153f0b347c383856e63",
+  "time": "2026-11-04T22:20:00Z",
+  "author": "Claude (0.5 build)",
+  "message": "complete 8.11.3",
+  "subjects": [
+    "t75"
+  ],
+  "forced": false
+}
