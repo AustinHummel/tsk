@@ -363,7 +363,23 @@ enum TypeCmd {
     List,
 }
 
+/// The command runs on a thread with room to spare. In a debug build clap
+/// builds the whole command tree on the stack, and with 0.5.0's tree that
+/// passed the 1 MB a Windows main thread gets (every CI test on
+/// windows-latest overflowed at start-up, 2026-11-04); the GNU toolchain
+/// used for development gives more and never showed it. Reserving 16 MB
+/// costs nothing until it is used.
+const STACK: usize = 16 << 20;
+
 fn main() {
+    let t = std::thread::Builder::new().stack_size(STACK).spawn(run).expect("spawning the command thread");
+    if t.join().is_err() {
+        // A panic: its message has been printed; exit as a panic would.
+        std::process::exit(101);
+    }
+}
+
+fn run() {
     let cli = Cli::parse();
     let json = cli.json;
     commands::set_json(json);

@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "42ca78cc6dbd51e781d652e234685fbbba62a112ab19e209ceb6e4dab6c51726",
+  "snapshot": "281e0d43664805f3078cefdebdc96a468a8f1b6811353153f0b347c383856e63",
+  "time": "2026-11-04T22:17:04Z",
+  "author": "Claude (0.5 build)",
+  "message": "amend 8 with Run the command on a thread with a 16 MB stack",
+  "subjects": [
+    "t61",
+    "t79"
+  ],
+  "forced": false
+}

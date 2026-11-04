@@ -135,3 +135,6 @@
 2026-11-04T22:10:39Z  76b940b443  started          start 8.11.1  [8.11.1]  -- Claude (0.5 build)
 2026-11-04T22:12:29Z  ebb3f2c18b  started          start 8.11.5  [8.11.5]  -- Claude (0.5 build)
 2026-11-04T22:12:29Z  42ca78cc6d  completed        complete 8.11.5  [8.11.5]  -- Claude (0.5 build)
+2026-11-04T22:17:04Z  5023bcc56e  amended          amend 8 with Run the command on a thread with a 16 MB stack  [8 8.13]  -- Claude (0.5 build)
+2026-11-04T22:17:04Z  e14424eb77  started          start 8.13  [8.13]  -- Claude (0.5 build)
+2026-11-04T22:17:04Z  310352e938  completed        complete 8.13  [8.13]  -- Claude (0.5 build)

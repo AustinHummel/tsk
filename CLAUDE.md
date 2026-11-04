@@ -110,7 +110,11 @@ Gotchas that bite an agent:
 - **Toolchain:** locally the `x86_64-pc-windows-gnu` target (rustup +
   `rust-mingw`; there is no MSVC). CI runs `rustup default stable` on
   ubuntu, windows and macos; the release builds `x86_64-pc-windows-msvc`
-  for Windows. Code must not assume either.
+  for Windows. Code must not assume either. One difference bit in 0.5.0:
+  MSVC's main thread has a 1 MB stack and clap's debug-build command tree
+  outgrew it (every Windows CI test overflowed at start-up while the GNU
+  build here was fine), so `main` runs the command on a thread with 16 MB
+  (`STACK` in `main.rs`). A green local suite does not prove Windows CI.
 - **Tests write to the OS temp dir** (`tsk-test-<name>-<pid>`), never to
   this repo's `.tasks/`. The built binary under test is
   `CARGO_BIN_EXE_tsk`, so `cargo test` always tests the tree, not the
