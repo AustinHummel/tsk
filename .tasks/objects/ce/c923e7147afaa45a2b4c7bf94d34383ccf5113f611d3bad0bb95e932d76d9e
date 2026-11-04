@@ -1,0 +1,9 @@
+task
+{
+  "id": "t62",
+  "title": "adopt: re-parent existing tasks",
+  "parent": "t61",
+  "seq": 62,
+  "body": "`tsk adopt <parent> <task>... --narrative \"<text>\"` moves tasks under a parent keeping id, history, children, fields, docs and requirements; a leaf parent is promoted the way `apply` does (a \"(core)\" child first); refuses a loop, self, a complete or dropped parent, or a missing narrative; one `Adopted` event. `amend` on a leaf promotes the same way instead of refusing. (Review T1, T7.)",
+  "types": []
+}

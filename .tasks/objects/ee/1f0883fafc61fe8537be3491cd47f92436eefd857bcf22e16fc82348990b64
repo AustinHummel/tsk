@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "41d18a129631425812f9fb5e5777a03175efffb7f22d2daa0df4e977d853971c",
+  "snapshot": "4b42ca64de4a57b7bc06309c287e10bb5fe630411d54768319db001bb82a4d16",
+  "time": "2026-11-04T21:51:10Z",
+  "author": "Claude (0.5 build)",
+  "message": "add 0.5.0: what the trial asked for",
+  "subjects": [
+    "t61"
+  ],
+  "forced": false
+}

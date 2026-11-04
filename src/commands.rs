@@ -50,10 +50,12 @@ pub fn set_store(p: Option<PathBuf>) {
 
 /// The store named by `--store` / `TSK_STORE`, else the one found by walking up.
 pub(crate) fn store_open() -> Result<Store> {
-    match STORE.get().cloned().flatten() {
-        Some(p) => Store::at(&p),
-        None => Store::discover(&std::env::current_dir()?),
-    }
+    let store = match STORE.get().cloned().flatten() {
+        Some(p) => Store::at(&p)?,
+        None => Store::discover(&std::env::current_dir()?)?,
+    };
+    store.check_format()?;
+    Ok(store)
 }
 
 fn load(store: Store, lock: Option<Lock>) -> Result<Ctx> {
@@ -141,6 +143,9 @@ fn parse_by(s: &str) -> Result<(String, String)> {
 }
 
 pub(crate) fn req_desc(plan: &Plan, r: &Requirement) -> String {
+    if let Requirer::Person(p) = &r.from {
+        return format!("required by [{}] on [{}]: {}", p, plan.label(&r.on), r.reason);
+    }
     let kind = if r.conditional {
         "conditional"
     } else if r.blocking {
@@ -172,7 +177,7 @@ pub(crate) fn say(s: &str) {
 /// `--json` mode the event itself (kind, subjects, group, forced, message).
 pub(crate) fn done(store: &Store, hash: &Hash, msg: &str) {
     if !json_mode() {
-        println!("{}  ({})", msg, &hash[..10]);
+        println!("{}  {}", msg, crate::color::dim(&format!("({})", &hash[..10])));
         return;
     }
     let v = match store.read_object::<Event>(ObjectType::Event, hash) {
@@ -201,6 +206,7 @@ fn new_task(plan: &mut Plan, title: &str, parent: Option<TaskId>, body: String) 
             due: None,
             docs: vec![],
             fields: Fields::new(),
+            former: vec![],
         },
     );
     id
@@ -235,15 +241,30 @@ pub fn add(title: String, body: Option<String>, by: Vec<String>, priority: Optio
     Ok(())
 }
 
-fn check_leaf_open(c: &Ctx, id: &str, verb: &str) -> Result<()> {
-    if c.plan.is_parent(id) {
-        bail!("{} is already broken down; {} one of its children instead", c.plan.label(id), verb);
-    }
+fn check_open(c: &Ctx, id: &str) -> Result<()> {
     match c.derived.status(id) {
         Status::Complete => bail!("{} is complete; `tsk uncomplete` it first", c.plan.label(id)),
         Status::Dropped => bail!("{} is dropped", c.plan.label(id)),
         _ => Ok(()),
     }
+}
+
+fn check_leaf_open(c: &Ctx, id: &str, verb: &str) -> Result<()> {
+    if c.plan.is_parent(id) {
+        bail!("{} is already broken down; {} one of its children instead", c.plan.label(id), verb);
+    }
+    check_open(c, id)
+}
+
+/// Turn an open leaf into a parent the way `apply` does: a `(core)` child
+/// carries the leaf's own prior scope (its body), so the children still
+/// cover the parent exactly once more are added. Returns the core child.
+fn promote(c: &mut Ctx, id: &TaskId) -> Result<TaskId> {
+    check_open(c, id)?;
+    let host = c.plan.task(id)?.clone();
+    let core = new_task(&mut c.plan, &format!("{} (core)", host.title), Some(id.clone()), host.body.clone());
+    c.plan.tasks.get_mut(&core).unwrap().core_of = Some(id.clone());
+    Ok(core)
 }
 
 /// What a breakdown of `task` must disposition, and the template for it.
@@ -337,29 +358,121 @@ pub fn amend(parent: String, title: String, body: Option<String>, narrative: Opt
     let body = read_text(body, false)?.unwrap_or_default();
     let mut c = open_rw()?;
     let pid = c.plan.resolve(&parent)?;
-    if !c.plan.is_parent(&pid) {
-        bail!("{} is not broken down; use `tsk breakdown`", c.plan.label(&pid));
-    }
+    // A leaf is promoted first: its own scope becomes the `(core)` child,
+    // and the narrative given here is the parent's first.
+    let core = if c.plan.is_parent(&pid) { None } else { Some(promote(&mut c, &pid)?) };
     let cid = new_task(&mut c.plan, &title, Some(pid.clone()), body);
     let p = c.plan.tasks.get_mut(&pid).unwrap();
-    let mut n = p.narrative.clone().unwrap_or_default();
-    if !n.is_empty() {
-        n.push_str("\n\n");
+    match core {
+        Some(_) => p.narrative = Some(narrative),
+        None => {
+            let mut n = p.narrative.clone().unwrap_or_default();
+            if !n.is_empty() {
+                n.push_str("\n\n");
+            }
+            n.push_str(&format!("Amended {}: {}", commit::now(), narrative));
+            p.narrative = Some(n);
+        }
     }
-    n.push_str(&format!("Amended {}: {}", commit::now(), narrative));
-    p.narrative = Some(n);
-    let h = c.commit(Commit::new(EventKind::Amended, format!("amend {} with {}", c.plan.number_of(&pid), title), vec![pid.clone(), cid.clone()]))?;
+    let mut subjects = vec![pid.clone()];
+    subjects.extend(core.iter().cloned());
+    subjects.push(cid.clone());
+    let h = c.commit(Commit::new(EventKind::Amended, format!("amend {} with {}", c.plan.number_of(&pid), title), subjects))?;
     done(&c.store, &h, &format!("added {} under {}", c.plan.label(&cid), c.plan.label(&pid)));
+    if let Some(core) = core {
+        say(&format!("  {} carries the parent's own scope", c.plan.label(&core)));
+    }
     Ok(())
 }
 
-pub fn edit(task: String, file: Option<String>, body: Option<String>, title: Option<String>, narrative: Option<String>) -> Result<()> {
+/// Move existing tasks under a parent, keeping everything about them: id,
+/// history, children, requirements, docs, fields. Each takes a new position
+/// at the end of the parent's children (drawn from the task counter, so no
+/// existing number moves). A leaf parent is promoted first, as `apply`
+/// does; a broken-down parent has the narrative appended, as `amend` does.
+pub fn adopt(parent: String, tasks: Vec<String>, narrative: Option<String>) -> Result<()> {
+    let narrative = narrative.ok_or_else(|| anyhow!("`--narrative` is required: say what scope the adopted tasks cover under the parent and why it gained them"))?;
+    if tasks.is_empty() {
+        bail!("name at least one task to adopt");
+    }
+    let mut c = open_rw()?;
+    let pid = c.plan.resolve(&parent)?;
+    let mut ids: Vec<TaskId> = Vec::new();
+    for t in &tasks {
+        let id = c.plan.resolve(t)?;
+        if ids.contains(&id) {
+            bail!("{} is named twice", c.plan.label(&id));
+        }
+        ids.push(id);
+    }
+    match c.derived.status(&pid) {
+        Status::Complete => bail!("{} is complete; `tsk uncomplete` it (or one of its children) first", c.plan.label(&pid)),
+        Status::Dropped => bail!("{} is dropped", c.plan.label(&pid)),
+        _ => {}
+    }
+    for id in &ids {
+        if *id == pid {
+            bail!("{} cannot adopt itself", c.plan.label(id));
+        }
+        let t = c.plan.task(id)?;
+        if t.parent.as_deref() == Some(pid.as_str()) {
+            bail!("{} is already under {}", c.plan.label(id), c.plan.label(&pid));
+        }
+        if c.plan.subtree(id).contains(&pid) {
+            bail!("{} is above {}: a task cannot become its own ancestor", c.plan.label(id), c.plan.label(&pid));
+        }
+        if t.core_of.is_some() || t.from_item.is_some() {
+            bail!("{} is the core or an item of a typed task; it stays with its host", c.plan.label(id));
+        }
+    }
+    let was_leaf = !c.plan.is_parent(&pid);
+    let mut subjects = vec![pid.clone()];
+    let core = if was_leaf { Some(promote(&mut c, &pid)?) } else { None };
+    subjects.extend(core.iter().cloned());
+    let old_numbers: Vec<String> = ids.iter().map(|i| c.plan.number_of(i)).collect();
+    for id in &ids {
+        c.plan.next_task += 1;
+        let seq = c.plan.next_task;
+        let t = c.plan.tasks.get_mut(id).unwrap();
+        // The old position stays vacant: its number is never reassigned.
+        t.former.push(Former { parent: t.parent.clone(), seq: t.seq });
+        t.parent = Some(pid.clone());
+        t.seq = seq;
+        subjects.push(id.clone());
+    }
+    c.plan.invalidate();
+    let p = c.plan.tasks.get_mut(&pid).unwrap();
+    if was_leaf {
+        p.narrative = Some(narrative);
+    } else {
+        let mut n = p.narrative.clone().unwrap_or_default();
+        if !n.is_empty() {
+            n.push_str("\n\n");
+        }
+        n.push_str(&format!("Adopted {}: {}", commit::now(), narrative));
+        p.narrative = Some(n);
+    }
+    let h = c.commit(Commit::new(EventKind::Adopted, format!("adopt {} under {}", old_numbers.join(" "), c.plan.number_of(&pid)), subjects))?;
+    done(&c.store, &h, &format!("adopted under {}:", c.plan.label(&pid)));
+    if let Some(core) = &core {
+        say(&format!("  {} carries the parent's own scope", c.plan.label(core)));
+    }
+    for (id, was) in ids.iter().zip(old_numbers) {
+        say(&format!("  {}  (was {})", c.plan.label(id), was));
+    }
+    Ok(())
+}
+
+pub fn edit(task: String, file: Option<String>, body: Option<String>, title: Option<String>, narrative: Option<String>, append: Option<String>) -> Result<()> {
+    if append.is_some() && (file.is_some() || body.is_some()) {
+        bail!("`--append` adds to the body; it cannot be combined with `-b` or `-F`");
+    }
     let mut new_body = match (file, body) {
         (Some(f), _) => read_text(Some(f), true)?,
         (None, Some(b)) => read_text(Some(b), false)?,
         (None, None) => None,
     };
-    if new_body.is_none() && title.is_none() && narrative.is_none() {
+    if new_body.is_none() && title.is_none() && narrative.is_none() && append.is_none() {
         let c = open()?;
         let id = c.plan.resolve(&task)?;
         new_body = Some(edit_in_editor(&c.store, "CARD", &c.plan.task(&id)?.body)?);
@@ -384,6 +497,20 @@ pub fn edit(task: String, file: Option<String>, body: Option<String>, title: Opt
             t.body = b.trim_end().to_string();
             changed.push("body");
         }
+    }
+    if let Some(a) = append {
+        let a = a.trim();
+        if a.is_empty() {
+            bail!("nothing to append");
+        }
+        // A dated paragraph at the end; what was there stays.
+        let mut b = t.body.trim_end().to_string();
+        if !b.is_empty() {
+            b.push_str("\n\n");
+        }
+        b.push_str(&format!("{}: {}", &commit::now()[..10], a));
+        t.body = b;
+        changed.push("appended to body");
     }
     if changed.is_empty() {
         say("nothing changed");
@@ -911,7 +1038,8 @@ fn transition(tasks: Vec<String>, force: bool, kind: EventKind) -> Result<()> {
     cm.forced = !problems.is_empty();
     let h = c.commit(cm)?;
     let labels: Vec<String> = ids.iter().map(|i| c.plan.label(i)).collect();
-    done(&c.store, &h, &format!("{}{}: {}", if !problems.is_empty() { "FORCED " } else { "" }, kind.name(), labels.join("; ")));
+    let forced = if problems.is_empty() { String::new() } else { format!("{} ", crate::color::red("FORCED")) };
+    done(&c.store, &h, &format!("{}{}: {}", forced, kind.name(), labels.join("; ")));
     if completing {
         // Say what just became ready.
         let mut leaf = c.leaf.clone();

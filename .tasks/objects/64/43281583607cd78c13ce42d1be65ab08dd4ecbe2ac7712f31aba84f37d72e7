@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "6d81983531c182205ec58b15c5877d606a3684ebc3dc5b3ba7fae8d6ec0e1c13",
+  "snapshot": "c9b1d7fcc1ec731c4904f3128cc6cf2258261a4db0ecc59d9319b382eb81d0cc",
+  "time": "2026-11-04T21:58:29Z",
+  "author": "Claude (0.5 build)",
+  "message": "amend 8 with Store format version (P5)",
+  "subjects": [
+    "t61",
+    "t78"
+  ],
+  "forced": false
+}

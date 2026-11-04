@@ -1,0 +1,9 @@
+task
+{
+  "id": "t68",
+  "title": "done-count on parents",
+  "parent": "t61",
+  "seq": 68,
+  "body": "`(3 done)` after a parent's title in `plan` and `ls` when completed or dropped children are hidden; omitted with `--all`. (Review T6.)",
+  "types": []
+}

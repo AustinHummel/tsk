@@ -1,0 +1,24 @@
+event
+{
+  "kind": "BrokenDown",
+  "parent": "ee1f0883fafc61fe8537be3491cd47f92436eefd857bcf22e16fc82348990b64",
+  "snapshot": "83459263c663014aed7d7529bdd74b591711551c6863a728b75fb16b042d40b2",
+  "time": "2026-11-04T21:51:10Z",
+  "author": "Claude (0.5 build)",
+  "message": "breakdown 8 into 11 children",
+  "subjects": [
+    "t61",
+    "t62",
+    "t63",
+    "t64",
+    "t65",
+    "t66",
+    "t67",
+    "t68",
+    "t69",
+    "t70",
+    "t71",
+    "t72"
+  ],
+  "forced": false
+}

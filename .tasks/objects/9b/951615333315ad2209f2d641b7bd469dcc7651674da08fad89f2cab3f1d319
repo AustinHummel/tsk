@@ -1,0 +1,9 @@
+task
+{
+  "id": "t65",
+  "title": "colour, in git's spirit",
+  "parent": "t61",
+  "seq": 65,
+  "body": "Subtle ANSI colour only when stdout is a terminal: glyphs tinted, ids and hashes dim, tags and FORCED coloured, headers bold. `--color auto|always|never`, config `color.ui`, `NO_COLOR`. Never in `--json` or a pipe. Pure Rust, no new crate.",
+  "types": []
+}

@@ -1,6 +1,7 @@
 //! Read-only commands: the card, the chain of intent, the outline, readiness,
 //! loops, review views, the log, and diffs.
 
+use crate::color;
 use crate::commands::{open, Ctx};
 use crate::model::*;
 use crate::plan::Plan;
@@ -8,7 +9,98 @@ use crate::state::{Block, Derived, Status};
 use crate::store::Store;
 use anyhow::{anyhow, bail, Context as _, Result};
 use serde_json::json;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
+
+/// `number id title`, the id dimmed when colour is on. For output only;
+/// event messages use `Plan::label`.
+fn clabel(c: &Ctx, id: &str) -> String {
+    match c.plan.tasks.get(id) {
+        Some(t) => format!("{} {} {}", c.plan.number_of(id), color::dim(id), t.title),
+        None => id.to_string(),
+    }
+}
+
+/// A section header in `show` and `context`.
+fn hdr(s: &str) -> String {
+    color::bold(s)
+}
+
+fn hash10(h: &str) -> String {
+    color::dim(&h[..10])
+}
+
+/// The leaves under a task (not the task itself), by what they are.
+#[derive(Default)]
+struct Counts {
+    open: usize,
+    ready: usize,
+    done: usize,
+    dropped: usize,
+}
+
+impl Counts {
+    /// `(7 open, 2 ready, 3 done)`, zero parts left out; with `finished_only`
+    /// just the done and dropped parts (what `plan` hides).
+    fn text(&self, finished_only: bool) -> String {
+        let mut parts = Vec::new();
+        if !finished_only {
+            if self.open > 0 {
+                parts.push(format!("{} open", self.open));
+            }
+            if self.ready > 0 {
+                parts.push(format!("{} ready", self.ready));
+            }
+        }
+        if self.done > 0 {
+            parts.push(format!("{} done", self.done));
+        }
+        if self.dropped > 0 {
+            parts.push(format!("{} dropped", self.dropped));
+        }
+        if parts.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", parts.join(", "))
+        }
+    }
+    fn json(&self) -> serde_json::Value {
+        json!({"open": self.open, "ready": self.ready, "done": self.done, "dropped": self.dropped})
+    }
+}
+
+fn leaf_counts(c: &Ctx, id: &str, filters: &[(String, Option<String>)]) -> Counts {
+    let mut k = Counts::default();
+    for d in c.plan.subtree(id) {
+        if d == id || c.plan.is_parent(&d) || (!filters.is_empty() && !c.plan.matches(&d, filters)) {
+            continue;
+        }
+        match c.derived.status(&d) {
+            Status::Complete => k.done += 1,
+            Status::Dropped => k.dropped += 1,
+            _ => {
+                k.open += 1;
+                if c.derived.is_ready(&c.plan, &d) {
+                    k.ready += 1;
+                }
+            }
+        }
+    }
+    k
+}
+
+fn tags_of(c: &Ctx, id: &str) -> Vec<&'static str> {
+    let mut tags = Vec::new();
+    if c.derived.is_ready(&c.plan, id) {
+        tags.push("ready");
+    }
+    if c.derived.in_loop.contains_key(id) {
+        tags.push("loop");
+    }
+    if c.derived.is_tentative(&c.plan, id) {
+        tags.push("tentative");
+    }
+    tags
+}
 
 pub(crate) fn block_text(c: &Ctx, b: &Block) -> String {
     match b {
@@ -79,8 +171,8 @@ pub fn show(task: String, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&v)?);
         return Ok(());
     }
-    println!("{} {}  {}", st.glyph(), c.plan.number_of(&id), t.title);
-    let mut facts = vec![format!("id {}", id), format!("status {}", st.name())];
+    println!("{} {}  {}", color::glyph(st), c.plan.number_of(&id), t.title);
+    let mut facts = vec![format!("id {}", color::dim(&id)), format!("status {}", st.name())];
     if !t.types.is_empty() {
         facts.push(format!("type {}", t.types.join(",")));
     }
@@ -113,7 +205,7 @@ pub fn show(task: String, json: bool) -> Result<()> {
     }
     let path = c.plan.ancestors_and_self(&id);
     if path.len() > 1 {
-        println!("\npath:");
+        println!("\n{}", hdr("path:"));
         for a in &path[..path.len() - 1] {
             println!("  {} {}", c.plan.number_of(&a.id), a.title);
         }
@@ -126,15 +218,20 @@ pub fn show(task: String, json: bool) -> Result<()> {
     }
     let on = c.plan.reqs_on(&id);
     if !on.is_empty() {
-        println!("\nrequired by:");
+        println!("\n{}", hdr("required by:"));
         for r in on {
-            let k = if r.conditional { "conditional" } else if r.blocking { "successor" } else { "technical" };
+            let k = match &r.from {
+                Requirer::Person(_) => "by",
+                _ if r.conditional => "conditional",
+                _ if r.blocking => "successor",
+                _ => "technical",
+            };
             println!("  {} {} [{}]: {}{}", r.id, k, c.plan.requirer_label(&r.from), r.reason, req_fields(r));
         }
     }
     let from = c.plan.reqs_from(&id);
     if !from.is_empty() {
-        println!("\nrequires:");
+        println!("\n{}", hdr("requires:"));
         for r in from {
             let k = if r.conditional { "conditional on" } else if r.blocking { "predecessor" } else { "technical, of" };
             println!("  {} {} [{}]: {}{}", r.id, k, c.plan.label(&r.on), r.reason, req_fields(r));
@@ -149,34 +246,34 @@ pub fn show(task: String, json: bool) -> Result<()> {
         }
     }
     if !inherited.is_empty() {
-        println!("\ninherited:");
+        println!("\n{}", hdr("inherited:"));
         for l in inherited {
             println!("{}", l);
         }
     }
     let kids = c.plan.children(&id);
     if !kids.is_empty() {
-        println!("\nbreakdown:");
+        println!("\n{}", hdr("breakdown:"));
         if let Some(n) = &t.narrative {
             for l in n.lines() {
                 println!("  {}", l);
             }
         }
         for k in kids {
-            println!("  {} {} {}", c.derived.status(&k.id).glyph(), c.plan.number_of(&k.id), k.title);
+            println!("  {} {} {}", color::glyph(c.derived.status(&k.id)), c.plan.number_of(&k.id), k.title);
         }
     } else if !blocks.is_empty() && st != Status::Complete && st != Status::Dropped {
-        println!("\nblocked:");
+        println!("\n{}", hdr("blocked:"));
         for b in &blocks {
             println!("  {}", block_text(&c, b));
         }
     } else if c.derived.is_ready(&c.plan, &id) {
-        println!("\nready to start");
+        println!("\n{}", color::green("ready to start"));
     }
     if !events.is_empty() {
-        println!("\nhistory:");
+        println!("\n{}", hdr("history:"));
         for (h, e) in events.iter().take(8) {
-            println!("  {}  {}  {}{}", &h[..10], e.time, e.kind.name(), if e.forced { " (forced)" } else { "" });
+            println!("  {}  {}  {}{}", hash10(h), e.time, e.kind.name(), if e.forced { color::red(" (forced)") } else { String::new() });
         }
     }
     Ok(())
@@ -245,20 +342,20 @@ pub fn context(task: String, full: bool, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&v)?);
         return Ok(());
     }
-    println!("context for {} {}  {}", c.plan.number_of(&id), id, t.title);
+    println!("context for {} {}  {}", c.plan.number_of(&id), color::dim(&id), t.title);
     let mut facts = vec![format!("status {}", st.name())];
     if c.derived.is_ready(&c.plan, &id) {
-        facts.push("ready".into());
+        facts.push(color::green("ready"));
     }
     if c.derived.is_tentative(&c.plan, &id) {
-        facts.push("tentative".into());
+        facts.push(color::yellow("tentative"));
     }
     println!("    {}", facts.join(" · "));
-    println!("\nchain of intent, root first:");
+    println!("\n{}", hdr("chain of intent, root first:"));
     for (depth, a) in chain.iter().enumerate() {
         let pad = "  ".repeat(depth + 1);
         let here = if a.id == id { "  <- this task" } else { "" };
-        println!("{}{} {} {}{}", pad, c.derived.status(&a.id).glyph(), c.plan.number_of(&a.id), a.title, here);
+        println!("{}{} {} {}{}", pad, color::glyph(c.derived.status(&a.id)), c.plan.number_of(&a.id), a.title, here);
         for p in person_reqs(&c.plan, &a.id) {
             println!("{}  required by {}", pad, p);
         }
@@ -283,20 +380,20 @@ pub fn context(task: String, full: bool, json: bool) -> Result<()> {
         }
     }
     if !t.body.is_empty() {
-        println!("\ncard:");
+        println!("\n{}", hdr("card:"));
         for l in t.body.lines() {
             println!("  {}", l);
         }
     }
     if let Some(n) = &t.narrative {
-        println!("\nnarrative:");
+        println!("\n{}", hdr("narrative:"));
         for l in n.lines() {
             println!("  {}", l);
         }
     }
     let from = c.plan.reqs_from(&id);
     if !from.is_empty() || !inherited.is_empty() {
-        println!("\nthis task requires:");
+        println!("\n{}", hdr("this task requires:"));
         for r in from {
             let k = if r.conditional { "conditional on" } else if r.blocking { "predecessor" } else { "technical, of" };
             let st = c.derived.status(&r.on);
@@ -308,7 +405,7 @@ pub fn context(task: String, full: bool, json: bool) -> Result<()> {
     }
     let on: Vec<&Requirement> = c.plan.reqs_on(&id).into_iter().filter(|r| matches!(r.from, Requirer::Task(_))).collect();
     if !on.is_empty() || !inherited_on.is_empty() {
-        println!("\nrequired of this task:");
+        println!("\n{}", hdr("required of this task:"));
         for r in on {
             let k = if r.conditional { "conditional" } else if r.blocking { "successor" } else { "technical" };
             println!("  {} {} [{}]: {}", r.id, k, c.plan.requirer_label(&r.from), r.reason);
@@ -318,34 +415,78 @@ pub fn context(task: String, full: bool, json: bool) -> Result<()> {
         }
     }
     if !blocks.is_empty() && matches!(st, Status::Todo | Status::Spike | Status::Paused) {
-        println!("\nblocked:");
+        println!("\n{}", hdr("blocked:"));
         for b in &blocks {
             println!("  {}", block_text(&c, b));
         }
     }
     if !siblings.is_empty() {
-        println!("\nsiblings:");
+        println!("\n{}", hdr("siblings:"));
         for s in siblings {
-            println!("  {} {} {}", c.derived.status(&s.id).glyph(), c.plan.number_of(&s.id), s.title);
+            println!("  {} {} {}", color::glyph(c.derived.status(&s.id)), c.plan.number_of(&s.id), s.title);
         }
     }
     if !kids.is_empty() {
-        println!("\nchildren:");
+        println!("\n{}", hdr("children:"));
         for k in kids {
-            println!("  {} {} {}", c.derived.status(&k.id).glyph(), c.plan.number_of(&k.id), k.title);
+            println!("  {} {} {}", color::glyph(c.derived.status(&k.id)), c.plan.number_of(&k.id), k.title);
         }
     }
     Ok(())
 }
 
-pub fn plan(task: Option<String>, all: bool, filters: Vec<String>, json: bool) -> Result<()> {
+/// One task's line in `plan` and `ls`: glyph, number, id, title, then a
+/// count of the leaves under it when one is wanted, then the tags.
+fn outline_line(c: &Ctx, id: &str, st: Status, counts: Option<(&Counts, bool)>, tags: &[&str]) -> String {
+    let marker = counts.map(|(k, finished_only)| k.text(finished_only)).unwrap_or_default();
+    format!("{} {}{}{}", color::glyph(st), clabel(c, id), marker, color::tags(tags))
+}
+
+/// What else attaches to a task that has no children: the open tasks that
+/// carry each of its field values, and the requirements on it. Printed
+/// under `plan <task>` so a one-line answer is never the whole story.
+fn childless_hints(c: &Ctx, id: &str) -> Vec<String> {
+    let t = &c.plan.tasks[id];
+    let mut hints = Vec::new();
+    for (k, v) in &t.fields {
+        let filter = [(k.clone(), Some(v.clone()))];
+        let n = c
+            .plan
+            .tasks
+            .keys()
+            .filter(|o| *o != id && !matches!(c.derived.status(o), Status::Complete | Status::Dropped) && c.plan.matches(o, &filter))
+            .count();
+        if n > 0 {
+            hints.push(format!("{} open task{} carr{} {}={}: tsk plan --where {}={}", n, if n == 1 { "" } else { "s" }, if n == 1 { "ies" } else { "y" }, k, v, k, v));
+        }
+    }
+    let on = c.plan.reqs_on(id).len();
+    let from = c.plan.reqs_from(id).len();
+    if on + from > 0 {
+        let mut s = String::new();
+        if on > 0 {
+            s.push_str(&format!("{} requirement{} on it", on, if on == 1 { "" } else { "s" }));
+        }
+        if from > 0 {
+            if !s.is_empty() {
+                s.push_str(", ");
+            }
+            s.push_str(&format!("{} it places", from));
+        }
+        hints.push(format!("{}: tsk show {}", s, c.plan.number_of(id)));
+    }
+    hints
+}
+
+pub fn plan(task: Option<String>, all: bool, filters: Vec<String>, depth: Option<usize>, json: bool) -> Result<()> {
     let c = open()?;
     let filters = parse_filters(&filters);
-    let roots: Vec<TaskId> = match task {
-        Some(t) => vec![c.plan.resolve(&t)?],
+    let roots: Vec<TaskId> = match &task {
+        Some(t) => vec![c.plan.resolve(t)?],
         None => c.plan.roots().iter().map(|t| t.id.clone()).collect(),
     };
-    fn walk(c: &Ctx, id: &TaskId, depth: usize, all: bool, filters: &[(String, Option<String>)], out: &mut Vec<serde_json::Value>, text: &mut String) {
+    #[allow(clippy::too_many_arguments)]
+    fn walk(c: &Ctx, id: &TaskId, depth: usize, all: bool, filters: &[(String, Option<String>)], max: Option<usize>, out: &mut Vec<serde_json::Value>, text: &mut String) {
         let st = c.derived.status(id);
         if !all && matches!(st, Status::Complete | Status::Dropped) {
             return;
@@ -354,27 +495,46 @@ pub fn plan(task: Option<String>, all: bool, filters: Vec<String>, json: bool) -
             return;
         }
         let t = &c.plan.tasks[id];
-        let mut tags = Vec::new();
-        if c.derived.is_ready(&c.plan, id) {
-            tags.push("ready");
+        let tags = tags_of(c, id);
+        let kids = c.plan.children(id);
+        let cut = !kids.is_empty() && max.map(|m| depth >= m).unwrap_or(false);
+        let counts = if kids.is_empty() { None } else { Some(leaf_counts(c, id, filters)) };
+        // At a depth cut the whole count; otherwise only what `plan` hides,
+        // the finished leaves, and nothing with `--all`.
+        let marker = match &counts {
+            Some(k) if cut => Some((k, false)),
+            Some(k) if !all => Some((k, true)),
+            _ => None,
+        };
+        text.push_str(&format!("{}{}\n", "    ".repeat(depth), outline_line(c, id, st, marker, &tags)));
+        let mut row = json!({"id": id, "number": c.plan.number_of(id), "title": t.title, "status": st.name(), "depth": depth, "tags": tags, "fields": t.fields});
+        if let Some(k) = &counts {
+            row["counts"] = k.json();
         }
-        if c.derived.in_loop.contains_key(id) {
-            tags.push("loop");
+        out.push(row);
+        if cut {
+            return;
         }
-        if c.derived.is_tentative(&c.plan, id) {
-            tags.push("tentative");
-        }
-        let tag = if tags.is_empty() { String::new() } else { format!("  <{}>", tags.join(", ")) };
-        text.push_str(&format!("{}{} {} {}{}\n", "    ".repeat(depth), st.glyph(), c.plan.number_of(id), t.title, tag));
-        out.push(json!({"id": id, "number": c.plan.number_of(id), "title": t.title, "status": st.name(), "depth": depth, "tags": tags, "fields": t.fields}));
-        for k in c.plan.children(id) {
-            walk(c, &k.id, depth + 1, all, filters, out, text);
+        for k in kids {
+            walk(c, &k.id, depth + 1, all, filters, max, out, text);
         }
     }
     let mut out = Vec::new();
     let mut text = String::new();
     for r in &roots {
-        walk(&c, r, 0, all, &filters, &mut out, &mut text);
+        walk(&c, r, 0, all, &filters, depth, &mut out, &mut text);
+    }
+    if let (Some(_), 1) = (&task, out.len()) {
+        let id = &roots[0];
+        if c.plan.children(id).is_empty() {
+            let hints = childless_hints(&c, id);
+            if !hints.is_empty() {
+                text.push_str("    no children\n");
+                for h in hints {
+                    text.push_str(&format!("    {}\n", h));
+                }
+            }
+        }
     }
     if json {
         println!("{}", serde_json::to_string_pretty(&out)?);
@@ -386,10 +546,81 @@ pub fn plan(task: Option<String>, all: bool, filters: Vec<String>, json: bool) -
     Ok(())
 }
 
+/// One level, flat: the roots, or a task's children, each with the count of
+/// the leaves under it.
+pub fn ls(task: Option<String>, all: bool, filters: Vec<String>, json: bool) -> Result<()> {
+    let c = open()?;
+    let filters = parse_filters(&filters);
+    let (items, under): (Vec<TaskId>, Option<TaskId>) = match task {
+        Some(t) => {
+            let id = c.plan.resolve(&t)?;
+            (c.plan.children(&id).iter().map(|k| k.id.clone()).collect(), Some(id))
+        }
+        None => (c.plan.roots().iter().map(|t| t.id.clone()).collect(), None),
+    };
+    let mut out = Vec::new();
+    let mut text = String::new();
+    for id in &items {
+        let st = c.derived.status(id);
+        if !all && matches!(st, Status::Complete | Status::Dropped) {
+            continue;
+        }
+        if !filters.is_empty() && !c.plan.subtree(id).iter().any(|d| c.plan.matches(d, &filters)) {
+            continue;
+        }
+        let t = &c.plan.tasks[id];
+        let tags = tags_of(&c, id);
+        let counts = if c.plan.children(id).is_empty() { None } else { Some(leaf_counts(&c, id, &filters)) };
+        text.push_str(&format!("{}\n", outline_line(&c, id, st, counts.as_ref().map(|k| (k, false)), &tags)));
+        let mut row = json!({"id": id, "number": c.plan.number_of(id), "title": t.title, "status": st.name(), "tags": tags, "fields": t.fields});
+        if let Some(k) = &counts {
+            row["counts"] = k.json();
+        }
+        out.push(row);
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&out)?);
+    } else if text.is_empty() {
+        match under {
+            Some(id) if items.is_empty() => println!("{} has no children", c.plan.label(&id)),
+            Some(id) => {
+                let k = leaf_counts(&c, &id, &filters);
+                println!("(no open children under {}{}; `--all` shows them)", c.plan.label(&id), k.text(true));
+            }
+            None => println!("(no open tasks)"),
+        }
+    } else {
+        print!("{}", text);
+    }
+    Ok(())
+}
+
 pub fn ready(blocked: bool, filters: Vec<String>, json: bool) -> Result<()> {
     let c = open()?;
     let filters = parse_filters(&filters);
     let ready: Vec<TaskId> = c.derived.ready(&c.plan).into_iter().filter(|t| c.plan.matches(t, &filters)).collect();
+    // Leaves in progress, and who started each (the latest `started` event
+    // naming it), so a session sees what it has on its hands.
+    let me = c.store.author();
+    let mut in_progress: Vec<TaskId> = c.plan.tasks.values().filter(|t| !c.plan.is_parent(&t.id) && c.derived.status(&t.id) == Status::InProgress && c.plan.matches(&t.id, &filters)).map(|t| t.id.clone()).collect();
+    in_progress.sort_by_key(|t| c.plan.tasks[t].seq);
+    let mut started_by: HashMap<TaskId, String> = HashMap::new();
+    if !in_progress.is_empty() {
+        let pending: HashSet<&TaskId> = in_progress.iter().collect();
+        for (_, e) in c.history() {
+            if e.kind == EventKind::Started {
+                for s in &e.subjects {
+                    if pending.contains(s) && !started_by.contains_key(s) {
+                        started_by.insert(s.clone(), e.author.clone());
+                    }
+                }
+            }
+            if started_by.len() == pending.len() {
+                break;
+            }
+        }
+    }
+    let mine: Vec<&TaskId> = in_progress.iter().filter(|t| started_by.get(*t) == Some(&me)).collect();
     let mut blocked_list: Vec<(TaskId, Vec<Block>)> = Vec::new();
     if blocked || json {
         let mut leaves: Vec<&Task> = c.plan.tasks.values().filter(|t| !c.plan.is_parent(&t.id)).collect();
@@ -403,18 +634,26 @@ pub fn ready(blocked: bool, filters: Vec<String>, json: bool) -> Result<()> {
     }
     if json {
         let v = json!({
+            "author": me,
+            "in_progress": in_progress.iter().map(|t| json!({"id": t, "number": c.plan.number_of(t), "title": c.plan.tasks[t].title, "author": started_by.get(t), "mine": started_by.get(t) == Some(&me), "fields": c.plan.tasks[t].fields})).collect::<Vec<_>>(),
             "ready": ready.iter().map(|t| json!({"id": t, "number": c.plan.number_of(t), "title": c.plan.tasks[t].title, "status": c.derived.status(t).name(), "fields": c.plan.tasks[t].fields})).collect::<Vec<_>>(),
             "blocked": blocked_list.iter().map(|(t, bs)| json!({"id": t, "number": c.plan.number_of(t), "title": c.plan.tasks[t].title, "blocks": bs.iter().map(|b| block_text(&c, b)).collect::<Vec<_>>()})).collect::<Vec<_>>(),
         });
         println!("{}", serde_json::to_string_pretty(&v)?);
         return Ok(());
     }
+    if !mine.is_empty() {
+        println!("in progress (you):");
+        for t in &mine {
+            println!("  {} {}", color::glyph(Status::InProgress), clabel(&c, t));
+        }
+    }
     if ready.is_empty() {
         println!("nothing is ready");
     } else {
         println!("ready:");
         for t in &ready {
-            println!("  {} {}", c.derived.status(t).glyph(), c.plan.label(t));
+            println!("  {} {}", color::glyph(c.derived.status(t)), clabel(&c, t));
         }
     }
     if blocked {
@@ -423,7 +662,7 @@ pub fn ready(blocked: bool, filters: Vec<String>, json: bool) -> Result<()> {
         } else {
             println!("blocked:");
             for (t, bs) in &blocked_list {
-                println!("  {} {}", c.derived.status(t).glyph(), c.plan.label(t));
+                println!("  {} {}", color::glyph(c.derived.status(t)), clabel(&c, t));
                 for b in bs {
                     println!("      {}", block_text(&c, b));
                 }
@@ -450,9 +689,9 @@ pub fn loops(json: bool) -> Result<()> {
         return Ok(());
     }
     for (i, l) in c.derived.loops.iter().enumerate() {
-        println!("loop #{}:", i + 1);
+        println!("{}", color::red(&format!("loop #{}:", i + 1)));
         for t in &l.tasks {
-            println!("  {} {}", c.derived.status(t).glyph(), c.plan.label(t));
+            println!("  {} {}", color::glyph(c.derived.status(t)), clabel(&c, t));
         }
         println!("  formed by:");
         for r in &l.reqs {
@@ -525,7 +764,7 @@ pub fn forced(json: bool) -> Result<()> {
     }
     println!("forced events (each one says the process or the tool needs a look):");
     for (h, e) in rows {
-        println!("  {}  {}  {}  {}", &h[..10], e.time, e.kind.name(), e.message);
+        println!("  {}  {}  {}  {}", hash10(h), e.time, e.kind.name(), e.message);
     }
     Ok(())
 }
@@ -548,7 +787,8 @@ pub fn log(task: Option<String>, limit: Option<usize>, json: bool) -> Result<()>
     }
     for (h, e) in rows {
         let subj = if e.subjects.is_empty() { String::new() } else { format!("  [{}]", e.subjects.iter().map(|s| c.plan.number_of(s)).collect::<Vec<_>>().join(" ")) };
-        println!("{}  {}  {:<16} {}{}{}  -- {}", &h[..10], e.time, e.kind.name(), e.message, subj, if e.forced { "  FORCED" } else { "" }, e.author);
+        let forced = if e.forced { format!("  {}", color::red("FORCED")) } else { String::new() };
+        println!("{}  {}  {:<16} {}{}{}  -- {}", hash10(h), e.time, e.kind.name(), e.message, subj, forced, e.author);
     }
     Ok(())
 }
@@ -749,7 +989,7 @@ fn diff_plan(c: &Ctx, old_h: &Hash, new_h: &Hash, basis: &str, json: bool) -> Re
                 }
                 let (sa, sb) = (old_d.status(id), new_d.status(id));
                 if sa != sb {
-                    lines.push(format!("  {} {}: {} -> {}", sb.glyph(), label(&new, id), sa.name(), sb.name()));
+                    lines.push(format!("  {} {}: {} -> {}", color::glyph(sb), label(&new, id), sa.name(), sb.name()));
                     changes.push(json!({"task": id, "change": "status", "from": sa.name(), "to": sb.name()}));
                 }
             }
@@ -802,9 +1042,9 @@ fn diff_plan(c: &Ctx, old_h: &Hash, new_h: &Hash, basis: &str, json: bool) -> Re
         );
         return Ok(());
     }
-    println!("{} event(s) from {} to {}{}:", events.len(), &old_h[..10], &new_h[..10], if basis.is_empty() { String::new() } else { format!(" (since {})", basis) });
+    println!("{} event(s) from {} to {}{}:", events.len(), hash10(old_h), hash10(new_h), if basis.is_empty() { String::new() } else { format!(" (since {})", basis) });
     for (h, e) in &events {
-        println!("  {}  {}  {:<16} {}  -- {}", &h[..10], e.time, e.kind.name(), e.message, e.author);
+        println!("  {}  {}  {:<16} {}  -- {}", hash10(h), e.time, e.kind.name(), e.message, e.author);
     }
     if lines.is_empty() {
         println!("the plan is unchanged");

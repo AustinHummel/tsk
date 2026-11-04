@@ -1,0 +1,9 @@
+task
+{
+  "id": "t63",
+  "title": "plan prints the id beside the number",
+  "parent": "t61",
+  "seq": 63,
+  "body": "`[ ] 8 t16 Title`, the form `ready` and `show` already use; JSON unchanged. (Review T2.)",
+  "types": []
+}

@@ -1,0 +1,9 @@
+task
+{
+  "id": "t64",
+  "title": "ls, and plan --depth",
+  "parent": "t61",
+  "seq": 64,
+  "body": "`tsk ls [task]`: one level, flat, with leaf counts `(7 open, 2 ready, 3 done)`; takes `--where`, `-a`, `--json`. `tsk plan --depth N`. (Review F9.)",
+  "types": []
+}

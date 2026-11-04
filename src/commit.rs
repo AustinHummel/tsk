@@ -75,6 +75,8 @@ pub fn write_on(store: &Store, plan: &Plan, parent: Option<Hash>, c: Commit) -> 
     }
     store.advance_head(ev.parent.as_deref(), &hash, &format!("{}: {}", ev.kind.name(), ev.message))?;
     store.append_log(&log_line(&hash, &ev, plan))?;
+    // The first write by a newer binary declares its format.
+    store.mark_format()?;
     // Carry the status memo forward when the previous one is at hand.
     if let Some(mut leaf) = ev.parent.as_deref().and_then(|p| store.cache_read::<std::collections::HashMap<TaskId, crate::state::Status>>("status", p)) {
         crate::state::apply_event(&mut leaf, &ev);

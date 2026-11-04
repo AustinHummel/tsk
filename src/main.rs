@@ -1,4 +1,5 @@
 mod breakdown;
+mod color;
 mod commands;
 mod commit;
 mod merge;
@@ -28,6 +29,10 @@ struct Cli {
     /// Also read from `TSK_STORE`. Leaves the working directory alone.
     #[arg(long, global = true, env = "TSK_STORE", value_name = "PATH")]
     store: Option<PathBuf>,
+    /// Colour the human views: `auto` (a terminal, unless `NO_COLOR` is set or
+    /// config `color.ui` says otherwise), `always`, or `never`. Never for `--json`.
+    #[arg(long, global = true, value_name = "WHEN", value_parser = ["auto", "always", "never"])]
+    color: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -70,6 +75,15 @@ enum Cmd {
         #[arg(long, allow_hyphen_values = true)]
         narrative: Option<String>,
     },
+    /// Move existing tasks under a parent, keeping their ids, history, children and
+    /// requirements. A leaf parent is promoted first (its own scope becomes a `(core)` child).
+    Adopt {
+        parent: String,
+        tasks: Vec<String>,
+        /// What the adopted tasks cover under the parent and why it gained them.
+        #[arg(long, allow_hyphen_values = true)]
+        narrative: Option<String>,
+    },
     /// Edit a task's body in $EDITOR, or set it from a file or argument.
     Edit {
         task: String,
@@ -82,6 +96,9 @@ enum Cmd {
         /// Replace the breakdown narrative.
         #[arg(long, allow_hyphen_values = true)]
         narrative: Option<String>,
+        /// Add a dated paragraph (`2026-11-04: ...`) to the body, keeping what is there.
+        #[arg(long, allow_hyphen_values = true, value_name = "TEXT")]
+        append: Option<String>,
     },
     /// Make PRED a predecessor of SUCC, for a reason. The reason is what SUCC requires of PRED.
     Link {
@@ -182,6 +199,19 @@ enum Cmd {
     /// The outline with derived status.
     Plan {
         /// Only this subtree.
+        task: Option<String>,
+        /// Also show complete and dropped tasks.
+        #[arg(short, long)]
+        all: bool,
+        /// Only tasks with this field (`key` or `key=value`), own or inherited. Repeatable.
+        #[arg(long = "where", value_name = "KEY[=VALUE]")]
+        filters: Vec<String>,
+        /// How many levels below the task (or the roots) to show: 0 is the task alone.
+        #[arg(long, value_name = "N")]
+        depth: Option<usize>,
+    },
+    /// One level, flat: the roots, or a task's children, each with a count of the leaves under it.
+    Ls {
         task: Option<String>,
         /// Also show complete and dropped tasks.
         #[arg(short, long)]
@@ -344,12 +374,20 @@ fn main() {
         }
     }
     commands::set_store(cli.store.clone());
+    // Colour is decided once, before any output; the store's `color.ui` is
+    // read if there is a store to read it from.
+    let color_cfg = commands::store_open().ok().and_then(|s| s.config_value("color.ui"));
+    if let Err(e) = color::init(cli.color.as_deref(), color_cfg.as_deref(), json) {
+        eprintln!("tsk: {}", e);
+        std::process::exit(1);
+    }
     let r = match cli.cmd {
         Cmd::Init => commands::init(),
         Cmd::Add { title, body, required_by, priority, due } => commands::add(title, body, required_by, priority, due),
         Cmd::Breakdown { task, file, template } => commands::breakdown(task, file, template),
         Cmd::Amend { parent, title, body, narrative } => commands::amend(parent, title, body, narrative),
-        Cmd::Edit { task, file, body, title, narrative } => commands::edit(task, file, body, title, narrative),
+        Cmd::Adopt { parent, tasks, narrative } => commands::adopt(parent, tasks, narrative),
+        Cmd::Edit { task, file, body, title, narrative, append } => commands::edit(task, file, body, title, narrative, append),
         Cmd::Link { pred, succ, reason, conditional } => commands::link(pred, succ, reason, conditional),
         Cmd::Require { from, on, reason } => commands::require(from, on, reason),
         Cmd::By { task, person, reason } => commands::by(task, person, reason),
@@ -374,7 +412,8 @@ fn main() {
         Cmd::Drop { task, reason } => commands::drop(task, reason),
         Cmd::Show { task } => views::show(task, json),
         Cmd::Context { task, full } => views::context(task, full, json),
-        Cmd::Plan { task, all, filters } => views::plan(task, all, filters, json),
+        Cmd::Plan { task, all, filters, depth } => views::plan(task, all, filters, depth, json),
+        Cmd::Ls { task, all, filters } => views::ls(task, all, filters, json),
         Cmd::Ready { blocked, filters } => views::ready(blocked, filters, json),
         Cmd::Loops => views::loops(json),
         Cmd::Stale => views::stale(json),

@@ -1,0 +1,10 @@
+task
+{
+  "id": "t73",
+  "title": "Release 0.5.0 (core)",
+  "parent": "t72",
+  "seq": 73,
+  "body": "Tests for every change, README and docs/agent-orgs.md updated, Cargo.toml bumped, CI green, tag, assets verified, local install.",
+  "types": [],
+  "core_of": "t72"
+}

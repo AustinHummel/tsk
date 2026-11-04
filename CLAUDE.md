@@ -13,8 +13,8 @@ commands are the [README](README.md); the mindset is
 A CLI for planning and tracking work, built the way Git is built: every
 change is an immutable event pointing at a snapshot of the whole plan, and
 status, readiness and loops are computed from history, never stored. Rust
-2021, one binary, pure-Rust dependencies, about 4,700 lines in twelve
-modules under `src/`, 26 end-to-end tests under `tests/`. Version 0.4.2
+2021, one binary, pure-Rust dependencies, about 6,000 lines in thirteen
+modules under `src/`, 38 end-to-end tests under `tests/`. Version 0.5.0
 (`Cargo.toml`). Public at https://github.com/AustinHummel/tsk, MIT.
 
 It is Austin Hummel's tool, maintained by his org's agents (his decision,
@@ -89,9 +89,9 @@ pass `--manifest-path C:\Projects\tsk\Cargo.toml`), and what green means:
 cd /c/Projects/tsk && nice -n 10 ~/.cargo/bin/cargo.exe test --locked
 ```
 
-Green is **26 passed, 0 failed** as of 0.4.2 (8 in `tests/cli.rs`, 13 in
-`tests/agent_org.rs`, 5 in `tests/merge.rs`, 0 in `src/`), about 10 s on
-a warm `target/`, a few minutes on a cold one. A change that adds a test
+Green is **38 passed, 0 failed** as of 0.5.0 (8 in `tests/cli.rs`, 13 in
+`tests/agent_org.rs`, 6 in `tests/merge.rs`, 11 in `tests/trial.rs`, 0 in
+`src/`), about 10 s on a warm `target/`, a few minutes on a cold one. A change that adds a test
 updates this count in the same commit. `--locked` holds the committed
 `Cargo.lock`; CI uses it too.
 
@@ -207,13 +207,20 @@ major release (1.0.0)". The first three were settled before he ruled.
 
 ## Store format and upgrades
 
-There is no store-level format version today (0.4.2): nothing in
-`.tasks/` says which tsk versions can read it. The snapshot header
-carries `version: 2` (the tree form; 1 was the flat form), and
-`read_snapshot` detects both, but tasks, events, requirements and the
-`log` and `HEAD` files carry no version at all. So an older binary
-meeting a store written by a newer one fails only when it happens to hit
-something it cannot parse, not with a clear message.
+Since 0.5.0 `.tasks/config` carries `format = 1` (`store::FORMAT`):
+`init` writes it, the first write by a newer binary raises it, and a
+binary meeting a format above what it knows refuses every command with
+one sentence naming the version needed. A store from before 0.5.0 has
+no line, counts as format 0, and reads as before. The snapshot header
+separately carries `version: 2` (the tree form; 1 was the flat form),
+and `read_snapshot` detects both. A 0.4.2 binary knows nothing of the
+line, so it still fails only when it hits what it cannot parse (the
+`adopted` event kind); from 0.5.0 on the refusal is clear.
+
+Raise `FORMAT` only when something on disk changes shape (a new event
+kind, a new field a reader must honour), as its own task in the store,
+and keep reading every older form. 1 added the `adopted` event and a
+task's `former` positions.
 
 Operating rule now (the org's pilot rule, 2026-11-03): **a store's
 machines upgrade tsk together, at a quiet point**, with the store
@@ -232,8 +239,7 @@ P4 to P6 as written here):
   `.tasks/format` file), written by `init` and by the first write of a
   newer binary, and a binary that meets a format newer than it knows
   refuses with one sentence naming the version needed, rather than
-  misreading. This closes the gap above; it is its own task in the store
-  when it happens, not a drive-by. (P5.)
+  misreading. Done in 0.5.0 (task 8.12 in the store), as above. (P5.)
 - **The org fixes what the pilot finds.** A bug found by the org's
   use of tsk is a task here (with `--by` naming who hit it and how),
   fixed, tested, and released under "Commit, push and release". (P6.)

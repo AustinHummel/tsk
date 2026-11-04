@@ -85,6 +85,58 @@ fn disjoint_changes_merge_with_ids_renumbered() {
 }
 
 #[test]
+fn an_adoption_on_one_side_merges_with_adds_on_the_other() {
+    let a = Proj::new("adopt-a");
+    dana(&a);
+    let b = Proj::new("adopt-b");
+    copy_store(&a.dir, &b.dir);
+    // Ours adopts: t5 takes position 6 from the counter without a task t6 existing.
+    a.ok(&["add", "alice's step"]); // t5
+    a.ok(&["adopt", "1", "t5", "--narrative", "it belongs to Dana's work"]);
+    assert!(a.ok(&["plan"]).contains("1.4 t5 alice's step"));
+    // Theirs adds t5 and t6: both collide, one by id and one by position.
+    b.ok(&["add", "bob's root"]); // t5
+    b.ok(&["add", "bob's other"]); // t6
+    bring_objects(&b.dir, &a.dir);
+    let out = a.ok(&["merge", &head(&b)]);
+    // Ids collide and are renumbered; which side's depends on which events
+    // come first in the canonical order (the same from either copy).
+    assert!(out.contains(" is now t"), "{}", out);
+    let plan = a.ok(&["plan"]);
+    // The number is the third word: the glyph `[ ]` is two.
+    let root_of = |title: &str| plan.lines().find(|l| l.contains(title)).map(|l| l.split_whitespace().nth(2).unwrap().to_string()).unwrap_or_else(|| panic!("{} in {}", title, plan));
+    assert!(root_of("alice's step") == "1.4", "{}", plan);
+    let (r1, r2) = (root_of("bob's root"), root_of("bob's other"));
+    assert!(r1 != r2 && !r1.contains('.') && !r2.contains('.'), "{}", plan);
+    // The root slot alice's step held stays vacant on the merged line too.
+    let vacant = (2..=4).map(|n| n.to_string()).find(|n| *n != r1 && *n != r2).unwrap();
+    assert!(a.fails(&["show", &vacant]).contains("is now 1.4"), "{}", plan);
+    // The other way converges on the same plan and the same snapshot.
+    bring_objects(&a.dir, &b.dir);
+    b.ok(&["merge", &head(&a)]);
+    assert_eq!(a.ok(&["plan", "-a"]), b.ok(&["plan", "-a"]));
+    let snap = |p: &Proj| p.ok(&["cat-object", &head(p)]).lines().find(|l| l.contains("\"snapshot\"")).unwrap().to_string();
+    assert_eq!(snap(&a), snap(&b));
+    // Every position, held or vacated, is unique on the merged line.
+    let mut seqs: Vec<u64> = Vec::new();
+    for l in a.ok(&["ls-snapshot"]).lines().filter(|l| l.starts_with("task")) {
+        let obj = a.ok(&["cat-object", l.split_whitespace().nth(1).unwrap()]);
+        let v: serde_json::Value = serde_json::from_str(obj.splitn(2, '\n').nth(1).unwrap()).unwrap();
+        seqs.push(v["seq"].as_u64().unwrap());
+        for f in v["former"].as_array().into_iter().flatten() {
+            seqs.push(f["seq"].as_u64().unwrap());
+        }
+    }
+    let mut dedup = seqs.clone();
+    dedup.sort();
+    dedup.dedup();
+    assert_eq!(dedup.len(), seqs.len(), "positions: {:?}", seqs);
+    b.ok(&["add", "later"]);
+    let plan = b.ok(&["plan"]);
+    assert!(plan.lines().any(|l| l.starts_with("[ ] 5 t") && l.contains(" later")), "the counter is past every position: {}", plan);
+}
+
+#[test]
 fn a_field_changed_on_both_sides_is_a_conflict_until_preferred() {
     let a = Proj::new("conflict-a");
     dana(&a);

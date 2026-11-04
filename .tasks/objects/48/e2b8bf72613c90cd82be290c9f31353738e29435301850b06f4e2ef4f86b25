@@ -1,0 +1,9 @@
+task
+{
+  "id": "t66",
+  "title": "ready opens with your in-progress tasks",
+  "parent": "t61",
+  "seq": 66,
+  "body": "`in progress (you):` before the ready list, by the current author (`TSK_AUTHOR`, config `author`, OS user). (Review F7.)",
+  "types": []
+}

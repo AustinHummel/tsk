@@ -1,0 +1,10 @@
+task
+{
+  "id": "t61",
+  "title": "0.5.0: what the trial asked for",
+  "parent": null,
+  "seq": 61,
+  "body": "",
+  "types": [],
+  "narrative": "The independent review of the DailySpend trial (austin-org, org/org-development/process-study/trial-review-2026-11-04.md) found what the tool cost the session: no re-parent (T1), two numbering schemes (T2), a flat top level with nothing to say about a childless root (T3), \"technical\" on a person's requirement (T4), no append (T5), hidden done children with no marker (T6), amend refusing a leaf (T7), mixed separators (T8), plus the session's own asks: a one-level view, colour, and seeing one's own started work. Each child is one of those; the last child is the release itself, carrying the release type."
+}

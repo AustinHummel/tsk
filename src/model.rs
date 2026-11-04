@@ -45,6 +45,19 @@ pub struct Task {
     /// User-defined fields.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: Fields,
+    /// Every position this task held before it was adopted elsewhere,
+    /// oldest first. Each keeps its outline number vacant under the old
+    /// parent, so no sibling is ever renumbered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub former: Vec<Former>,
+}
+
+/// A position a task used to hold: under which parent (None for a root),
+/// and the sequence number that ordered it there.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Former {
+    pub parent: Option<TaskId>,
+    pub seq: u64,
 }
 
 /// Who or what requires something of a task.
@@ -183,6 +196,10 @@ pub enum EventKind {
     TypeAdded,
     TypeEdited,
     Applied,
+    /// Existing tasks were moved under a parent (promoted from a leaf if
+    /// it had to be); the parent is the first subject, the moved tasks and
+    /// any core child follow.
+    Adopted,
     FlaggedAsSpike,
     Confirmed,
     Started,
@@ -213,6 +230,7 @@ impl EventKind {
             EventKind::TypeAdded => "type-added",
             EventKind::TypeEdited => "type-edited",
             EventKind::Applied => "applied",
+            EventKind::Adopted => "adopted",
             EventKind::FlaggedAsSpike => "flagged-as-spike",
             EventKind::Confirmed => "confirmed",
             EventKind::Started => "started",

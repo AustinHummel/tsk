@@ -1,0 +1,13 @@
+req
+{
+  "id": "r36",
+  "from": {
+    "kind": "task",
+    "id": "t78"
+  },
+  "on": "t62",
+  "reason": "the format line lands with the first on-disk change",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-04T21:58:29Z"
+}

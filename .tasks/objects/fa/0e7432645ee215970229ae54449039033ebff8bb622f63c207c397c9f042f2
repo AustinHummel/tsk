@@ -1,0 +1,18 @@
+event
+{
+  "kind": "Applied",
+  "parent": "355ff88b65fed5fb76b537443d9f0b5bf2a534eee57b181a050ff6f648456d31",
+  "snapshot": "0dd6ca4631e8312b499ab3c99c58bec095a06f6cfd88f0632b7a65982cccb6b1",
+  "time": "2026-11-04T21:51:10Z",
+  "author": "Claude (0.5 build)",
+  "message": "apply release to 8.11",
+  "subjects": [
+    "t72",
+    "t73",
+    "t74",
+    "t75",
+    "t76",
+    "t77"
+  ],
+  "forced": false
+}

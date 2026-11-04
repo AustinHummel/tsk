@@ -20,12 +20,19 @@ pub struct Plan {
     index: RefCell<Option<Index>>,
 }
 
-/// Everything about the tree that is derived from `parent` and `seq`.
+/// Everything about the tree that is derived from `parent`, `seq` and the
+/// positions adopted tasks left behind.
 #[derive(Debug, Clone, Default)]
 struct Index {
     children: HashMap<Option<TaskId>, Vec<TaskId>>,
+    /// Every slot under a parent in order: (seq, task, whether the task is
+    /// still there). A slot a task vacated by adoption keeps its number.
+    slots: HashMap<Option<TaskId>, Vec<(u64, TaskId, bool)>>,
     numbering: HashMap<TaskId, String>,
     parents: HashSet<TaskId>,
+    /// Outline numbers left vacant by adoption: the number, and the task
+    /// that held it.
+    vacated: HashMap<String, TaskId>,
 }
 
 impl Plan {
@@ -109,23 +116,32 @@ impl Plan {
     fn index(&self) -> Ref<'_, Index> {
         if self.index.borrow().is_none() {
             let mut ix = Index::default();
-            let mut by_parent: HashMap<Option<TaskId>, Vec<&Task>> = HashMap::new();
+            let mut by_parent: HashMap<Option<TaskId>, Vec<(u64, TaskId, bool)>> = HashMap::new();
             for t in self.tasks.values() {
-                by_parent.entry(t.parent.clone()).or_default().push(t);
+                by_parent.entry(t.parent.clone()).or_default().push((t.seq, t.id.clone(), true));
+                for f in &t.former {
+                    by_parent.entry(f.parent.clone()).or_default().push((f.seq, t.id.clone(), false));
+                }
             }
-            for (p, mut kids) in by_parent {
-                kids.sort_by_key(|t| t.seq);
-                if let Some(p) = &p {
+            for (p, mut slots) in by_parent {
+                slots.sort_by_key(|(s, id, _)| (*s, id.clone()));
+                let kids: Vec<TaskId> = slots.iter().filter(|(_, _, here)| *here).map(|(_, id, _)| id.clone()).collect();
+                if let (Some(p), false) = (&p, kids.is_empty()) {
                     ix.parents.insert(p.clone());
                 }
-                ix.children.insert(p, kids.into_iter().map(|t| t.id.clone()).collect());
+                ix.children.insert(p.clone(), kids);
+                ix.slots.insert(p, slots);
             }
             fn walk(ix: &mut Index, parent: Option<&str>, prefix: &str) {
-                let kids = ix.children.get(&parent.map(String::from)).cloned().unwrap_or_default();
-                for (i, k) in kids.iter().enumerate() {
+                let slots = ix.slots.get(&parent.map(String::from)).cloned().unwrap_or_default();
+                for (i, (_, id, here)) in slots.iter().enumerate() {
                     let num = if prefix.is_empty() { format!("{}", i + 1) } else { format!("{}.{}", prefix, i + 1) };
-                    ix.numbering.insert(k.clone(), num.clone());
-                    walk(ix, Some(k), &num);
+                    if *here {
+                        ix.numbering.insert(id.clone(), num.clone());
+                        walk(ix, Some(id), &num);
+                    } else {
+                        ix.vacated.insert(num, id.clone());
+                    }
                 }
             }
             walk(&mut ix, None, "");
@@ -201,7 +217,13 @@ impl Plan {
             if let Some((id, _)) = numbering.iter().find(|(_, n)| n.as_str() == r) {
                 return Ok(id.clone());
             }
-            bail!("no task at outline position {}", r);
+            // The number, or the position above it, may have been vacated
+            // by an adoption: say where that task went.
+            let moved = self.index().vacated.iter().find(|(n, _)| r == n.as_str() || r.starts_with(&format!("{}.", n))).map(|(n, id)| (n.clone(), id.clone()));
+            match moved {
+                Some((n, id)) => bail!("no task at outline position {}: {} held {} until it was adopted, and is now {}", r, id, n, self.number_of(&id)),
+                None => bail!("no task at outline position {}", r),
+            }
         }
         let lower = r.to_lowercase();
         let mut exact: Vec<&Task> = self.tasks.values().filter(|t| t.title.to_lowercase() == lower).collect();

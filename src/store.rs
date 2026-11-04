@@ -124,6 +124,13 @@ impl std::fmt::Display for StoreMoved {
 
 impl std::error::Error for StoreMoved {}
 
+/// The store format this binary writes, declared as `format` in
+/// `.tasks/config`. Stores from before 0.5.0 carry no line and count as 0;
+/// every older form is still read (the snapshot header has its own
+/// version). The number moves only when something on disk changes shape:
+/// 1 (0.5.0) added the `adopted` event kind and a task's former positions.
+pub const FORMAT: u32 = 1;
+
 impl Store {
     pub fn init(at: &Path) -> Result<Store> {
         let dir = at.join(DIR);
@@ -132,7 +139,9 @@ impl Store {
         }
         fs::create_dir_all(dir.join("objects"))?;
         let store = Store { dir };
-        store.write_config(&BTreeMap::new())?;
+        let mut cfg = BTreeMap::new();
+        cfg.insert("format".to_string(), FORMAT.to_string());
+        store.write_config(&cfg)?;
         fs::write(store.dir.join(".gitignore"), GITIGNORE)?;
         fs::write(store.dir.join(".gitattributes"), GITATTRIBUTES)?;
         fs::write(store.dir.join("log"), LOG_HEADER)?;
@@ -740,6 +749,30 @@ impl Store {
 
     pub fn config_value(&self, key: &str) -> Option<String> {
         self.read_config().ok().and_then(|c| c.get(key).cloned())
+    }
+
+    /// The format the store declares; none (before 0.5.0) is 0.
+    pub fn format(&self) -> u32 {
+        self.config_value("format").and_then(|v| v.trim().parse().ok()).unwrap_or(0)
+    }
+
+    /// Refuse a store written by a newer tsk rather than misread it.
+    pub fn check_format(&self) -> Result<()> {
+        let f = self.format();
+        if f > FORMAT {
+            bail!("this store is format {} (written by a newer tsk); tsk {} reads up to format {}: upgrade tsk", f, env!("CARGO_PKG_VERSION"), FORMAT);
+        }
+        Ok(())
+    }
+
+    /// Declare this binary's format, on the first write by a newer binary.
+    pub fn mark_format(&self) -> Result<()> {
+        if self.format() < FORMAT {
+            let mut cfg = self.read_config()?;
+            cfg.insert("format".to_string(), FORMAT.to_string());
+            self.write_config(&cfg)?;
+        }
+        Ok(())
     }
 
     /// Who signs events: `TSK_AUTHOR` first, so that each agent session on a

@@ -1,0 +1,9 @@
+task
+{
+  "id": "t71",
+  "title": "render reports its folder with one separator",
+  "parent": "t61",
+  "seq": 71,
+  "body": "(Review T8.)",
+  "types": []
+}

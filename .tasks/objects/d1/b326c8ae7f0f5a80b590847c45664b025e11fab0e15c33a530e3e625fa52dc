@@ -1,0 +1,13 @@
+req
+{
+  "id": "r33",
+  "from": {
+    "kind": "person",
+    "id": "Austin"
+  },
+  "on": "t61",
+  "reason": "the DailySpend trial, 2026-11-04",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-04T21:51:10Z"
+}

@@ -1,0 +1,9 @@
+task
+{
+  "id": "t67",
+  "title": "a person's requirement is labelled as such",
+  "parent": "t61",
+  "seq": 67,
+  "body": "\"required by\"/\"by\" instead of \"technical\" in show, context, diff and the breakdown template; `tsk require` still prints \"technical\". (Review T4.)",
+  "types": []
+}

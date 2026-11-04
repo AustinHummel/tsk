@@ -211,10 +211,13 @@ pub fn render(dir: Option<String>) -> Result<()> {
         }
     }
     let idx = write_if_changed(&out.join("README.md"), &index(&c))?;
+    // One separator throughout: the root may have come from `--store` with
+    // forward slashes and the join added the platform's.
+    let shown = out.to_string_lossy().replace('\\', "/");
     if crate::commands::json_mode() {
-        println!("{}", json!({"dir": out.to_string_lossy(), "pages": total, "changed": changed, "index_changed": idx}));
+        println!("{}", json!({"dir": shown, "pages": total, "changed": changed, "index_changed": idx}));
     } else {
-        say(&format!("rendered {} page(s) into {} ({} changed{})", total, out.display(), changed, if idx { ", index updated" } else { "" }));
+        say(&format!("rendered {} page(s) into {} ({} changed{})", total, shown, changed, if idx { ", index updated" } else { "" }));
     }
     Ok(())
 }

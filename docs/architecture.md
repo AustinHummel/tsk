@@ -48,7 +48,9 @@ snapshot's paths; `rev-list` walks the chain.
   (creation order; the outline number is derived from it), `body`
   (markdown, the human's), `types`, `from_item` / `core_of` (set when a
   type is applied), `narrative` (set by breakdown), `priority`, `due`,
-  `docs`, `fields` (a `BTreeMap<String, String>`).
+  `docs`, `fields` (a `BTreeMap<String, String>`), `former` (the
+  positions it held before each adoption: `{parent, seq}`, each keeping
+  its outline number vacant under the old parent).
 - **Requirement**: one record for three uses. `from` is a `Requirer`
   (a task or a person), `on` the task it sits on, `reason` the text,
   `blocking` true for a dependency (`on` is the predecessor, `from` the
@@ -63,11 +65,17 @@ snapshot's paths; `rev-list` walks the chain.
   an event rewrites one path. `store::read_snapshot` loads the 0.1 flat
   form too (`version` absent).
 - **Event**: `EventKind` (init, created, edited, broken-down, amended,
-  linked, required, moved, unlinked, type-added, type-edited, applied,
-  flagged-as-spike, confirmed, started, paused, completed, uncompleted,
-  dropped, set, pruned, merged), `parent`, `snapshot`, `time` (UTC, to the
-  second), `author`, `message`, `subjects`, `group` (a start or complete
-  done together), `forced`, `replayed_from`.
+  adopted, linked, required, moved, unlinked, type-added, type-edited,
+  applied, flagged-as-spike, confirmed, started, paused, completed,
+  uncompleted, dropped, set, pruned, merged), `parent`, `snapshot`,
+  `time` (UTC, to the second), `author`, `message`, `subjects`, `group`
+  (a start or complete done together), `forced`, `replayed_from`.
+- **Store format**: `.tasks/config` carries `format = 1` (since 0.5.0;
+  `store::FORMAT`). `init` writes it, the first write by a newer binary
+  raises it, `store_open` refuses a format above what the binary knows.
+  A store without the line is format 0 and reads as before. The number
+  moves only when something on disk changes shape; 1 added the `adopted`
+  event kind and a task's `former` positions.
 
 ## How a write happens (`commands.rs` → `commit.rs` → `store.rs`)
 
@@ -96,7 +104,9 @@ a warning, HEAD and its snapshot read as immutable values.
 
 - **Leaf status** is a replay of the events (`apply_event`): started,
   paused, completed, uncompleted, dropped, flagged-as-spike, confirmed,
-  each on its subjects. Memoized per HEAD in the cache.
+  each on its subjects; broken-down and applied end the parent's own
+  status, and adopted and amended end the first subject's (a leaf
+  promoted to a parent). Memoized per HEAD in the cache.
 - **`Derived::compute`** builds, per plan state: a parent's status from
   its children (dropped children don't count; complete when every live
   child is; in progress when any is in progress, paused or complete;
@@ -108,8 +118,13 @@ a warning, HEAD and its snapshot read as immutable values.
   requirement own or inherited satisfied, not dropped); tentativeness
   (a conditional predecessor not yet complete).
 - **Numbering** (`1.2.4`) is an index built once per plan state from the
-  tree and `seq`; `Plan::resolve` accepts an id, a number, or an exact
-  title that names one task.
+  tree and `seq`, with each `former` position of an adopted task as a
+  vacant slot under its old parent, so no task is ever renumbered; an
+  adopted task's new `seq` is drawn from the task counter (so ids skip
+  a number per adoption) and a merge replaying an adoption draws it from
+  the merged line's counter. `Plan::resolve` accepts an id, a number, or
+  an exact title that names one task, and names the task that vacated a
+  number.
 - **Fields** are inherited down the tree for `--where`: `Plan::field`
   walks ancestors.
 

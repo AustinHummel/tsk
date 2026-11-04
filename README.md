@@ -71,8 +71,9 @@ Process (porcelain):
 | `init` | Create `.tasks/` here. |
 | `add <title> [--by "Who: why"] [-b body] [--priority p] [--due d]` | A root task. Children only come from `breakdown` or `amend`. Priority and due are free text, set only here. |
 | `breakdown <task> [-F file]` | Children, narrative, and the disposition of every requirement, in one event. `--template` prints the file to fill in; with no `-F` it opens in `$EDITOR`. |
-| `amend <parent> <title> --narrative "..."` | Add a child to a broken-down parent along with the scope it covers. |
-| `edit <task> [-b body \| -F file] [--title] [--narrative]` | Change the card. |
+| `amend <parent> <title> --narrative "..."` | Add a child along with the scope it covers. A leaf parent is promoted first: its own scope becomes a `(core)` child. |
+| `adopt <parent> <task>... --narrative "..."` | Move existing tasks under a parent, keeping their ids, history, children, requirements, docs and fields. A leaf parent is promoted as `amend` does; a broken-down one has the narrative appended. |
+| `edit <task> [-b body \| -F file] [--append text] [--title] [--narrative]` | Change the card. `--append` adds a dated paragraph (`2026-11-04: ...`) and keeps what is there. |
 | `link <pred> <succ> "<reason>" [--conditional]` | A dependency. `--conditional` makes the successor tentative. |
 | `require <from> <on> "<reason>"` | A technical requirement: scope, not ordering. |
 | `by <task> <person> "<reason>"` | Who requires it. |
@@ -84,8 +85,9 @@ Process (porcelain):
 | `spike`, `confirm`, `start`, `pause`, `complete`, `uncomplete`, `drop` | State changes, each one event. `start` and `complete` take a group. |
 | `show <task>` | The card with everything needed to work it. |
 | `context <task> [--full]` | The chain of intent from the root to the task: who asked, each level's narrative, docs and fields, then the card, its requirements, siblings and children. |
-| `plan [task] [-a] [--where k=v]` | The outline with status. |
-| `ready [--blocked] [--where k=v]` | What can start now, and what each blocked leaf waits on. |
+| `plan [task] [-a] [--where k=v] [--depth N]` | The outline with status: `[ ] 1.2 t3 Title`. A parent whose finished children are hidden says `(3 done)`; a childless task says what else attaches to it. |
+| `ls [task] [-a] [--where k=v]` | One level, flat: the roots, or a task's children, each with the leaves under it: `(7 open, 2 ready, 3 done)`. |
+| `ready [--blocked] [--where k=v]` | Your own tasks in progress first, then what can start now, and what each blocked leaf waits on. |
 | `loops` | Every dependency loop and the requirements forming it. |
 | `stale`, `forced`, `log [task]` | Review views. |
 | `diff [task] [--from E] [--to E] [--git [REV]]` | What changed in the plan (or one task) between two events; by default since the store's last git commit. |
@@ -95,15 +97,23 @@ Process (porcelain):
 | `reflog`, `reset <event>` | Every move of HEAD on this copy, and the way back to any of them. |
 | `merge [theirs] [--prefer ours\|theirs] [--dry-run]` | Replay another copy's events onto ours. |
 | `git-setup` | Register the git merge driver for `.tasks/HEAD` (once per machine). |
-| `config [key [value]]` | `author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`. |
+| `config [key [value]]` | `author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`, `color.ui`. |
 
 Plumbing: `cat-object <hash>`, `hash-object [file]`, `ls-snapshot [event]`,
 `rev-list`, `merge-driver`. Every view takes `--json`.
 
 Tasks are addressed by id (`t7`), outline number (`1.2.4`), or exact
 title when it names one task. Ids and numbers are fixed: nothing is ever
-renumbered. Reasons and bodies with spaces are quoted, as with `git
-commit -m`; they may begin with a dash.
+renumbered. An adopted task takes the next position under its new parent
+and leaves its old number vacant (`tsk show 3` then says where `t3`
+went), the way a dropped task keeps its line; rendered pages are named
+by id, so links to them hold. Reasons and bodies with spaces are quoted,
+as with `git commit -m`; they may begin with a dash.
+
+The human views are coloured, subtly and in git's spirit, when stdout is
+a terminal: `--color auto|always|never` (default `auto`), config
+`color.ui` (`true`, `false`, `always`), and `NO_COLOR` are respected.
+Output piped to a file or printed with `--json` is never coloured.
 
 ## Which store
 
@@ -146,7 +156,9 @@ lock it displaced; a displaced lock's owner sees its token gone and stops.
 
 Each event carries an author: `TSK_AUTHOR` if set, else the store's
 `author` config, else the OS user. A session that sets `TSK_AUTHOR` signs
-its own events on a shared store.
+its own events on a shared store, and `tsk ready` opens with the tasks
+that author has in progress (`in progress (you):`), so a session that is
+working with nothing started sees it.
 
 ## The breakdown file
 
@@ -171,14 +183,18 @@ every requirement that must be dispositioned. When no `-F` is given and
 there is no terminal, the command fails at once with that advice instead
 of opening an editor. `--json` before any command makes views print JSON
 and makes a change print its event (`event`, `kind`, `subjects`, `group`,
-`forced`, `author`), nothing else. A refusal exits 1 with one message on
-stderr saying what and why. A typical agent loop:
+`forced`, `author`), nothing else, and never an escape code whatever
+`--color` says. A refusal exits 1 with one message on stderr saying what
+and why. `ready --json` carries `in_progress` (every leaf in progress,
+with its `author` and whether it is `mine`); `plan --json` and `ls --json`
+carry a parent's `counts` of the leaves under it. A typical agent loop:
 
 ```
 tsk context 1.2 --json                # the chain of intent: read this first
-tsk ready --json --where agent=me     # what can start, of what I'm assigned
+tsk ready --json --where agent=me     # mine in progress, what can start
 tsk breakdown 1.2 --template          # the form
 printf '...' | tsk --json breakdown 1.2 -F -
+tsk edit 1.2.1 --append "found: ..."  # a dated note on the card, nothing replaced
 tsk loops --json                      # anything to untangle
 ```
 
@@ -212,6 +228,12 @@ store does not get slower as its history grows: on a plan of 664 tasks
 and 966 events, `ready` and `plan` take under 20 ms and a change under
 50 ms (Windows, i7). The views that show history (`log`, `show`,
 `forced`, `diff`) still read it, and `prune` is for size, not speed.
+
+`.tasks/config` declares the store's `format` (1 since 0.5.0; a store
+from before carries no line and reads as before, and the first write by
+a 0.5.0 binary adds it). A binary that meets a format newer than it
+knows refuses with one sentence naming the version needed, rather than
+misread the store; every older form is always read.
 
 Commit `.tasks/` with your project. `.tasks/log` has one line per event
 (time, event, kind, message, tasks, author), appended by every command, so
@@ -276,15 +298,19 @@ asked for. Prune to the oldest event you still diff against.
 ## Model
 
 - **Task**: id, title, parent, body (markdown, yours), narrative (set by
-  breakdown), types, priority, due, docs, fields.
+  breakdown), types, priority, due, docs, fields, and the positions it
+  held before it was adopted elsewhere (each keeps its number vacant).
 - **Requirement**: `{from, on, reason, blocking, conditional, fields}`, one
   record for a dependency (blocking), a technical requirement, and a
-  "required by person" entry. Shown from both sides.
+  "required by person" entry. Shown from both sides; a person's is
+  labelled `required by`, a task's `technical`, `predecessor` or
+  `conditional`.
 - **Type**: items with their own scope and requirements (`core`,
   `item:<id>`, or a task), optionally `--pending <task>` or `--when`;
   docs on the type and its items are inherited by every instance.
-- **Event**: kind, parent event, snapshot, time, author, message, subjects,
-  group, forced.
+- **Event**: kind (`created`, `broken-down`, `amended`, `adopted`,
+  `edited`, `started`, ... ), parent event, snapshot, time, author,
+  message, subjects, group, forced.
 
 Derived: a parent is complete when its children are; a parent as
 predecessor is complete when everything under it is; a child depending on

@@ -46,7 +46,7 @@ fn loops_are_found_and_guarded() {
     let out = p.ok(&["complete", "1.1", "1.2", "1.3"]);
     assert!(!out.contains("FORCED"), "{}", out);
     assert!(p.ok(&["forced"]).contains("no forced events"));
-    assert!(p.ok(&["plan", "-a"]).contains("[x] 1 root"));
+    assert!(p.ok(&["plan", "-a"]).contains("[x] 1 t1 root"));
 }
 
 #[test]
@@ -89,8 +89,8 @@ fn types_apply_as_a_breakdown_and_track_instances() {
     p.ok(&["type", "item", "cmd", "cmd-1", "Help entry", "--pending", "1.3"]);
     p.ok(&["apply", "cmd", "1.2"]);
     let plan = p.ok(&["plan"]);
-    assert!(plan.contains("1.2.1 add command (core)"), "{}", plan);
-    assert!(plan.contains("1.2.4 Help entry  <tentative>"), "{}", plan);
+    assert!(plan.contains("1.2.1 t5 add command (core)"), "{}", plan);
+    assert!(plan.contains("1.2.4 t8 Help entry  <tentative>"), "{}", plan);
     assert!(p.ok(&["ready"]).contains("1.2.1"));
     assert!(p.fails(&["start", "1.2.3"]).contains("waits on 1.2.1"));
     assert!(p.fails(&["apply", "cmd", "1.2"]).contains("already broken down"));
@@ -131,7 +131,7 @@ fn tasks_resolve_by_id_number_or_title() {
     assert!(msg.contains("did you mean") && msg.contains("Build a CLI"), "{}", msg);
     p.ok(&["drop", "/?", "created by accident"]);
     assert!(p.ok(&["plan"]).contains("(no open tasks)") == false);
-    assert!(p.ok(&["plan", "-a"]).contains("[-] 1 /?"));
+    assert!(p.ok(&["plan", "-a"]).contains("[-] 1 t1 /?"));
 }
 
 #[test]

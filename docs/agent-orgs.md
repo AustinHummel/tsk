@@ -25,7 +25,17 @@ TSK_AUTHOR=session-42 tsk start 1.4.1
 The field says who holds the task and where its working folder is; the
 author stamps every event the session writes. `tsk ready --where
 agent=session-42` is that session's queue, including anything under a task
-it holds. `tsk plan --where agent` shows who holds what.
+it holds, and it opens with what that author already has in progress, so
+a session that is working with nothing started sees it at once: start
+the task before the first tool call on it. `tsk plan --where agent` shows
+who holds what.
+
+A session reports results on the card without rewriting it: `tsk edit
+<task> --append "found: ..."` adds a dated paragraph as one event. When
+the shape of the plan turns out wrong, `tsk adopt <parent> <task>...
+--narrative "..."` moves tasks under another parent with their ids,
+history and requirements intact, so every link in the vault still
+resolves; the number a task leaves behind stays vacant.
 
 ## The chain of intent
 
@@ -46,6 +56,15 @@ agent finds it needs more, that is often a missing requirement or a
 missing doc link, worth adding rather than reading wider.
 
 `--full` adds every ancestor's body. `--json` gives the same for a program.
+
+For the person at the top, who reads the tree rather than one task,
+`tsk ls` is one level at a time, each line carrying the id (`t16`, the
+handle every page and note uses) and the leaves under it (`7 open, 2
+ready, 3 done`); `tsk plan --depth N` cuts the outline at a level; and
+`tsk plan <task>` on a task with no children says what else attaches to
+it (the open tasks carrying its fields, the requirements on it), so a
+quest root that holds its work by `quest=` rather than by nesting is
+never a blank answer.
 
 ## Notes and the tree: a skeleton, not a filing system
 

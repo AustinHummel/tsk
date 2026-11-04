@@ -1,0 +1,9 @@
+task
+{
+  "id": "t70",
+  "title": "edit --append",
+  "parent": "t61",
+  "seq": 70,
+  "body": "`tsk edit <task> --append \"<text>\"` adds a dated paragraph to the body as one `Edited` event. (Review T5.)",
+  "types": []
+}

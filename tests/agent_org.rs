@@ -213,7 +213,7 @@ fn prune_keeps_every_event_and_the_current_plan() {
     let out = p.ok(&["prune", "--before", cutoff]);
     assert!(out.contains("removed"), "{}", out);
     assert_eq!(p.ok(&["rev-list"]).lines().count(), before + 1, "every event stays, plus the prune event");
-    assert!(p.ok(&["plan"]).contains("1.2 Build a CLI"));
+    assert!(p.ok(&["plan"]).contains("1.2 t3 Build a CLI"));
     assert!(p.ok(&["log"]).contains("init"), "the log still reaches the first event");
     let oldest = revs.last().unwrap();
     assert!(p.fails(&["ls-snapshot", oldest]).contains("pruned"));
@@ -249,7 +249,7 @@ fn flat_snapshots_from_0_1_still_load() {
     assert!(p.ok(&["ls-snapshot"]).contains(&task));
     // The next change writes the tree form, and the history spans both.
     p.ok(&["add", "new root"]);
-    assert!(p.ok(&["plan"]).contains("2 new root"));
+    assert!(p.ok(&["plan"]).contains("2 t2 new root"));
     assert!(p.ok(&["diff", "--from", &head]).contains("+ 2 t2 new root"));
     let newest = p.ok(&["rev-list"]).lines().next().unwrap().to_string();
     let out = p.ok(&["cat-object", &newest]);
@@ -291,7 +291,7 @@ fn a_type_can_stand_for_a_process_with_docs_and_conditions() {
     // An item that does not apply is dropped with the reason: a recorded exception, not a violation.
     p.ok(&["drop", "1.1.3", "nothing user-visible in this fix"]);
     p.ok(&["complete", "1.1.1", "1.1.2"]);
-    assert!(p.ok(&["plan", "-a"]).contains("[x] 1.1 ship the fix"));
+    assert!(p.ok(&["plan", "-a"]).contains("[x] 1.1 t2 ship the fix"));
     assert!(p.ok(&["forced"]).contains("no forced events"));
 }
 

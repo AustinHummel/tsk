@@ -157,7 +157,11 @@ impl Replay {
     fn task_added(&mut self, t: &Task) {
         let mut nt = t.clone();
         let num: u64 = t.id.trim_start_matches('t').parse().unwrap_or(0);
-        if self.plan.tasks.contains_key(&t.id) {
+        // Renumber when the id is taken, or when the merged line's counter
+        // has already passed it (an `adopt` draws a sequence number from
+        // the counter without creating a task), so no two tasks share a
+        // sequence number.
+        if self.plan.tasks.contains_key(&t.id) || num <= self.plan.next_task {
             nt.id = self.plan.new_task_id();
             nt.seq = self.plan.next_task;
             self.tmap.insert((self.side, t.id.clone()), nt.id.clone());
@@ -179,8 +183,23 @@ impl Replay {
         };
         let w = |f: &str| format!("{} {}", label, f);
         self.field(&w("title"), &mut cur.title, &pre.title, &post.title);
+        let held = Former { parent: cur.parent.clone(), seq: cur.seq };
         let (pp, pq) = (pre.parent.as_deref().map(|p| self.t(p)), post.parent.as_deref().map(|p| self.t(p)));
         self.field(&w("parent"), &mut cur.parent, &pp, &pq);
+        if post.seq != pre.seq && cur.parent == pq {
+            // An adoption: on its own line the task took the next position
+            // from the counter. On this line it takes the next position
+            // from this counter, and the slot it leaves vacant is the one
+            // it held here (its id and position may both have been
+            // renumbered), so positions stay unique and no sibling moves.
+            cur.former.push(held);
+            self.plan.next_task += 1;
+            cur.seq = self.plan.next_task;
+        } else {
+            let map_former = |v: &[Former]| -> Vec<Former> { v.iter().map(|f| Former { parent: f.parent.as_deref().map(|p| self.t(p)), seq: f.seq }).collect() };
+            let (fp, fq) = (map_former(&pre.former), map_former(&post.former));
+            self.field(&w("former positions"), &mut cur.former, &fp, &fq);
+        }
         self.field(&w("body"), &mut cur.body, &pre.body, &post.body);
         self.field(&w("narrative"), &mut cur.narrative, &pre.narrative, &post.narrative);
         self.field(&w("priority"), &mut cur.priority, &pre.priority, &post.priority);

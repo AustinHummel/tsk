@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Started",
+  "parent": "3a09281310a153b9d7fb8a5df9f046830b49041a921e29078ad25f10718fdc7e",
+  "snapshot": "927abd97af30cd82c68f18b14124f4173afcba0ba044e1cf46731e5977701ad4",
+  "time": "2026-11-04T22:10:39Z",
+  "author": "Claude (0.5 build)",
+  "message": "start 8.11.1",
+  "subjects": [
+    "t73"
+  ],
+  "forced": false
+}

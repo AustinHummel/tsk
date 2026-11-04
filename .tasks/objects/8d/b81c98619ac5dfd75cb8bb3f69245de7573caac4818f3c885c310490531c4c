@@ -1,0 +1,9 @@
+task
+{
+  "id": "t69",
+  "title": "plan on a childless task hints at what attaches to it",
+  "parent": "t61",
+  "seq": 69,
+  "body": "Open tasks carrying each of its field values, and the requirements on it, with the commands to see them. (Review T3.)",
+  "types": []
+}

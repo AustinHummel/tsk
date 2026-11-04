@@ -47,9 +47,17 @@ pub fn apply_event(out: &mut HashMap<TaskId, Status>, ev: &Event) {
         EventKind::Uncompleted => Status::Todo,
         EventKind::Dropped => Status::Dropped,
         EventKind::FlaggedAsSpike => Status::Spike,
-        EventKind::BrokenDown | EventKind::Applied => Status::Todo,
+        EventKind::BrokenDown | EventKind::Applied | EventKind::Adopted | EventKind::Amended => Status::Todo,
         _ => return,
     };
+    if matches!(ev.kind, EventKind::Adopted | EventKind::Amended) {
+        // The parent (first subject) may have been a leaf until now: its
+        // own status ends. The moved or added tasks keep theirs.
+        if let Some(p) = ev.subjects.first() {
+            out.remove(p);
+        }
+        return;
+    }
     for s in &ev.subjects {
         if ev.kind == EventKind::BrokenDown || ev.kind == EventKind::Applied {
             // The parent's own status ends; the children carry it on.
