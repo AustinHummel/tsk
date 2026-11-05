@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Completed",
+  "parent": "d9cea55c1bddc079e5e57131491680c4583a5bde789e1f7c8041ee70be36bc82",
+  "snapshot": "b4d2f66483ecde2dd9df40457f3db59418bdd8e99f8dbb4ba8208216e1dac807",
+  "time": "2026-11-05T21:00:41Z",
+  "author": "fable implementer-0.6.0 2026-11-05",
+  "message": "complete 9.8.3",
+  "subjects": [
+    "t91"
+  ],
+  "forced": false
+}
