@@ -98,8 +98,10 @@ pub fn tags(tags: &[&str]) -> String {
         .iter()
         .map(|t| match *t {
             "ready" => green(t),
-            "loop" => red(t),
+            "loop" | "overdue" => red(t),
             "tentative" => yellow(t),
+            "ongoing" => magenta(t),
+            other if other.starts_with("not before") => dim(other),
             other => other.to_string(),
         })
         .collect();

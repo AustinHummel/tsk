@@ -128,8 +128,10 @@ impl std::error::Error for StoreMoved {}
 /// `.tasks/config`. Stores from before 0.5.0 carry no line and count as 0;
 /// every older form is still read (the snapshot header has its own
 /// version). The number moves only when something on disk changes shape:
-/// 1 (0.5.0) added the `adopted` event kind and a task's former positions.
-pub const FORMAT: u32 = 1;
+/// 1 (0.5.0) added the `adopted` event kind and a task's former positions;
+/// 2 (0.6.0) added the `closed` and `reopened` event kinds and a task's
+/// `fit`, `ongoing` and `after`.
+pub const FORMAT: u32 = 2;
 
 impl Store {
     pub fn init(at: &Path) -> Result<Store> {

@@ -202,6 +202,9 @@ impl Replay {
         }
         self.field(&w("body"), &mut cur.body, &pre.body, &post.body);
         self.field(&w("narrative"), &mut cur.narrative, &pre.narrative, &post.narrative);
+        self.field(&w("fit"), &mut cur.fit, &pre.fit, &post.fit);
+        self.field(&w("ongoing"), &mut cur.ongoing, &pre.ongoing, &post.ongoing);
+        self.field(&w("after"), &mut cur.after, &pre.after, &post.after);
         self.field(&w("priority"), &mut cur.priority, &pre.priority, &post.priority);
         self.field(&w("due"), &mut cur.due, &pre.due, &post.due);
         self.field(&w("from_item"), &mut cur.from_item, &pre.from_item, &post.from_item);
@@ -340,7 +343,12 @@ impl Replay {
 }
 
 fn is_status(kind: EventKind) -> bool {
-    matches!(kind, EventKind::Started | EventKind::Paused | EventKind::Completed | EventKind::Uncompleted | EventKind::Dropped | EventKind::FlaggedAsSpike)
+    matches!(kind, EventKind::Started | EventKind::Paused | EventKind::Completed | EventKind::Uncompleted | EventKind::Dropped | EventKind::FlaggedAsSpike | EventKind::Closed | EventKind::Reopened)
+}
+
+/// An event that adds scope under its first subject.
+fn gains_scope(kind: EventKind) -> bool {
+    matches!(kind, EventKind::Amended | EventKind::Adopted | EventKind::BrokenDown)
 }
 
 /// Marker events are not replayed: they change no plan and belong to the
@@ -484,7 +492,22 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
     let mut touched: HashMap<TaskId, (Side, EventKind, String)> = HashMap::new();
     let kept: Vec<(Side, &Event)> = all.iter().map(|i| (i.side, &i.ev)).collect();
     let later: Vec<(Side, &Event)> = staged.iter().map(|(i, e, _)| (i.side, e)).collect();
+    // A close on one side and scope gained under the same task on the
+    // other: the merged derivation reopens it on its own; the person is
+    // told.
+    let mut closed_on: Vec<(Side, TaskId, String)> = Vec::new();
+    let mut gained_on: Vec<(Side, TaskId, Vec<TaskId>)> = Vec::new();
     for (side, ev) in kept.into_iter().chain(later) {
+        if ev.kind == EventKind::Closed {
+            for s in &ev.subjects {
+                closed_on.push((side, s.clone(), ev.time.clone()));
+            }
+        }
+        if gains_scope(ev.kind) {
+            if let Some(p) = ev.subjects.first() {
+                gained_on.push((side, p.clone(), ev.subjects[1..].to_vec()));
+            }
+        }
         if !is_status(ev.kind) {
             continue;
         }
@@ -495,6 +518,14 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
                 }
             }
             touched.insert(s.clone(), (side, ev.kind, ev.time.clone()));
+        }
+    }
+    for (cs, task, time) in &closed_on {
+        for (gs, p, kids) in &gained_on {
+            if cs != gs && p == task {
+                let names: Vec<String> = kids.iter().map(|k| rp.plan.label(k)).collect();
+                out.both_touched.push(format!("{}: closed on {} at {}, then gained {} on {}; it is open again", rp.plan.label(task), cs.name(), time, names.join(", "), gs.name()));
+            }
         }
     }
     if !out.conflicts.is_empty() || dry_run {

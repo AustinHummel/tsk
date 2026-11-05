@@ -1,4 +1,5 @@
 mod breakdown;
+mod clock;
 mod color;
 mod commands;
 mod commit;
@@ -41,7 +42,9 @@ struct Cli {
 enum Cmd {
     /// Create a `.tasks/` store in the current directory.
     Init,
-    /// Add a root task. Children are added only by `breakdown` or `amend`.
+    /// Add a root task: the problem in the requester's words, with who asked and why.
+    /// Children come only from breakdown, amend or adopt, and only when the task is not
+    /// complete until they are.
     Add {
         title: String,
         /// Card body (markdown). `-` reads stdin.
@@ -52,8 +55,17 @@ enum Cmd {
         required_by: Vec<String>,
         #[arg(long)]
         priority: Option<String>,
+        /// When it is due: free text, or a date (`YYYY-MM-DD`) or local time (`YYYY-MM-DDTHH:MM`)
+        /// the views compare.
         #[arg(long)]
         due: Option<String>,
+        /// Not workable before this date or local time; inherited by everything under it.
+        #[arg(long, value_name = "DATE")]
+        after: Option<String>,
+        /// Declare it ongoing, with what belongs under it: its last child is not yet known,
+        /// so it is complete only when closed.
+        #[arg(long, allow_hyphen_values = true, value_name = "ADMITS")]
+        ongoing: Option<String>,
     },
     /// Break a task down into children, atomically, from a breakdown file.
     Breakdown {
@@ -65,24 +77,55 @@ enum Cmd {
         #[arg(long)]
         template: bool,
     },
-    /// Add a child to a task that is already broken down, with the scope it covers.
+    /// Add a child to a task, with the part of the parent's scope it takes (--fit). A task
+    /// is a child only when the parent is not complete until it is done; the narrowest such
+    /// task is the parent. A parent with no children yet is cut in two: name the piece that
+    /// holds its own work with --core.
     Amend {
         parent: String,
         title: String,
         #[arg(short, long, allow_hyphen_values = true)]
         body: Option<String>,
-        /// Text appended to the parent's narrative saying what the child covers.
+        /// Which part of the parent's scope this child takes, so a reader can tell it from
+        /// its siblings. Required.
+        #[arg(long, allow_hyphen_values = true)]
+        fit: Option<String>,
+        /// The parent's cut, rewritten: replaces its narrative (nothing is appended).
         #[arg(long, allow_hyphen_values = true)]
         narrative: Option<String>,
+        /// The new child is not workable before this date or local time.
+        #[arg(long, value_name = "DATE")]
+        after: Option<String>,
+        /// When the new child is due.
+        #[arg(long)]
+        due: Option<String>,
+        /// When the parent has no children yet: the title of the piece that holds the
+        /// parent's own work, beside the new one.
+        #[arg(long, allow_hyphen_values = true, value_name = "TITLE")]
+        core: Option<String>,
+        /// The body of that piece, when the split changes it (default: the parent's body).
+        #[arg(long, allow_hyphen_values = true, value_name = "BODY")]
+        core_body: Option<String>,
     },
     /// Move existing tasks under a parent, keeping their ids, history, children and
-    /// requirements. A leaf parent is promoted first (its own scope becomes a `(core)` child).
+    /// requirements, with the part of the parent's scope each takes (--fit).
     Adopt {
         parent: String,
         tasks: Vec<String>,
-        /// What the adopted tasks cover under the parent and why it gained them.
+        /// Which part of the parent's scope the adopted tasks take. Required; recorded on
+        /// each (`tsk edit <id> --fit` gives each its own).
+        #[arg(long, allow_hyphen_values = true)]
+        fit: Option<String>,
+        /// The parent's cut, rewritten: replaces its narrative (nothing is appended).
         #[arg(long, allow_hyphen_values = true)]
         narrative: Option<String>,
+        /// When the parent has no children yet: the title of the piece that holds the
+        /// parent's own work, beside the adopted ones.
+        #[arg(long, allow_hyphen_values = true, value_name = "TITLE")]
+        core: Option<String>,
+        /// The body of that piece, when the split changes it (default: the parent's body).
+        #[arg(long, allow_hyphen_values = true, value_name = "BODY")]
+        core_body: Option<String>,
     },
     /// Edit a task's body in $EDITOR, or set it from a file or argument.
     Edit {
@@ -93,14 +136,59 @@ enum Cmd {
         body: Option<String>,
         #[arg(long)]
         title: Option<String>,
-        /// Replace the breakdown narrative.
+        /// Replace the narrative (a parent's cut, or a childless ongoing task's admission test).
         #[arg(long, allow_hyphen_values = true)]
         narrative: Option<String>,
         /// Add a dated paragraph (`2026-11-04: ...`) to the body, keeping what is there.
         #[arg(long, allow_hyphen_values = true, value_name = "TEXT")]
         append: Option<String>,
+        /// Which part of the parent's scope this task takes.
+        #[arg(long, allow_hyphen_values = true)]
+        fit: Option<String>,
     },
-    /// Make PRED a predecessor of SUCC, for a reason. The reason is what SUCC requires of PRED.
+    /// Declare a task ongoing: its last child is not yet known, so it is complete only when
+    /// closed; the text is what belongs under it. `--off` takes the declaration back.
+    Ongoing {
+        task: String,
+        /// What belongs under it, and what does not.
+        #[arg(allow_hyphen_values = true)]
+        admits: Option<String>,
+        /// The task is finite after all; its narrative stays.
+        #[arg(long)]
+        off: bool,
+    },
+    /// Close an ongoing task: declare that no more scope belongs under it. Refused while
+    /// anything under it is open.
+    Close {
+        task: String,
+        #[arg(allow_hyphen_values = true)]
+        reason: String,
+    },
+    /// Reopen a closed ongoing task.
+    Reopen { task: String },
+    /// Dates on a task: not workable before --after (inherited by everything under it; also
+    /// how a wait on someone outside the plan lapses at a deadline), and when it is --due.
+    /// Nothing fires: tsk ready shows what a date is holding back and what is overdue.
+    When {
+        task: String,
+        /// A date (`YYYY-MM-DD`, the start of that local day) or a local time
+        /// (`YYYY-MM-DDTHH:MM`), stored with its UTC offset.
+        #[arg(long, value_name = "DATE")]
+        after: Option<String>,
+        /// Free text; a date or local time is compared by the views.
+        #[arg(long, allow_hyphen_values = true, value_name = "TEXT")]
+        due: Option<String>,
+        /// Remove a date: `after` or `due`. Repeatable.
+        #[arg(long, value_name = "FIELD")]
+        clear: Vec<String>,
+        /// What the date stands for (`Northwest's written reply, or Tuesday morning
+        /// without it`); recorded in the event.
+        #[arg(allow_hyphen_values = true)]
+        why: Option<String>,
+    },
+    /// Make PRED a predecessor of SUCC, for a reason. The reason is what SUCC requires of
+    /// PRED. It is not a place to say "X is part of Y": that is a child (tsk amend), not a
+    /// predecessor.
     Link {
         pred: String,
         succ: String,
@@ -209,6 +297,10 @@ enum Cmd {
         /// How many levels below the task (or the roots) to show: 0 is the task alone.
         #[arg(long, value_name = "N")]
         depth: Option<usize>,
+        /// Under each task, one line: the part it takes of its parent (its fit), else the
+        /// first line of its narrative or body. The placement view.
+        #[arg(long)]
+        scope: bool,
     },
     /// One level, flat: the roots, or a task's children, each with a count of the leaves under it.
     Ls {
@@ -219,8 +311,14 @@ enum Cmd {
         /// Only tasks with this field (`key` or `key=value`), own or inherited. Repeatable.
         #[arg(long = "where", value_name = "KEY[=VALUE]")]
         filters: Vec<String>,
+        /// Under each task, one line: the part it takes of its parent (its fit), else the
+        /// first line of its narrative or body. What each child already takes, before
+        /// claiming a part.
+        #[arg(long)]
+        scope: bool,
     },
-    /// Leaves that can start now, and what every other open leaf waits on.
+    /// Leaves that can start now, what a date is holding back, and what every other open
+    /// leaf waits on. Ongoing tasks never appear.
     Ready {
         /// Also list blocked leaves.
         #[arg(short, long)]
@@ -228,6 +326,10 @@ enum Cmd {
         /// Only tasks with this field (`key` or `key=value`), own or inherited. Repeatable.
         #[arg(long = "where", value_name = "KEY[=VALUE]")]
         filters: Vec<String>,
+        /// Under each ready task, what it holds up: the direct successors of it and its
+        /// ancestors.
+        #[arg(long)]
+        holds: bool,
     },
     /// Every dependency loop, with the requirements that form it.
     Loops,
@@ -296,7 +398,8 @@ enum Cmd {
     },
     /// Move HEAD to an earlier (or any) event, recorded in the reflog. Nothing is deleted.
     Reset { event: String },
-    /// Read or set config (`author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`).
+    /// Read or set config (`author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`,
+    /// `color.ui`, `require.by`).
     Config { key: Option<String>, value: Option<String> },
 
     // ----- plumbing -----
@@ -399,11 +502,15 @@ fn run() {
     }
     let r = match cli.cmd {
         Cmd::Init => commands::init(),
-        Cmd::Add { title, body, required_by, priority, due } => commands::add(title, body, required_by, priority, due),
+        Cmd::Add { title, body, required_by, priority, due, after, ongoing } => commands::add(title, body, required_by, priority, due, after, ongoing),
         Cmd::Breakdown { task, file, template } => commands::breakdown(task, file, template),
-        Cmd::Amend { parent, title, body, narrative } => commands::amend(parent, title, body, narrative),
-        Cmd::Adopt { parent, tasks, narrative } => commands::adopt(parent, tasks, narrative),
-        Cmd::Edit { task, file, body, title, narrative, append } => commands::edit(task, file, body, title, narrative, append),
+        Cmd::Amend { parent, title, body, fit, narrative, after, due, core, core_body } => commands::amend(parent, title, body, fit, narrative, after, due, core, core_body),
+        Cmd::Adopt { parent, tasks, fit, narrative, core, core_body } => commands::adopt(parent, tasks, fit, narrative, core, core_body),
+        Cmd::Edit { task, file, body, title, narrative, append, fit } => commands::edit(task, file, body, title, narrative, append, fit),
+        Cmd::Ongoing { task, admits, off } => commands::ongoing(task, admits, off),
+        Cmd::Close { task, reason } => commands::close(task, reason),
+        Cmd::Reopen { task } => commands::reopen(task),
+        Cmd::When { task, after, due, clear, why } => commands::when(task, after, due, clear, why),
         Cmd::Link { pred, succ, reason, conditional } => commands::link(pred, succ, reason, conditional),
         Cmd::Require { from, on, reason } => commands::require(from, on, reason),
         Cmd::By { task, person, reason } => commands::by(task, person, reason),
@@ -428,9 +535,9 @@ fn run() {
         Cmd::Drop { task, reason } => commands::drop(task, reason),
         Cmd::Show { task } => views::show(task, json),
         Cmd::Context { task, full } => views::context(task, full, json),
-        Cmd::Plan { task, all, filters, depth } => views::plan(task, all, filters, depth, json),
-        Cmd::Ls { task, all, filters } => views::ls(task, all, filters, json),
-        Cmd::Ready { blocked, filters } => views::ready(blocked, filters, json),
+        Cmd::Plan { task, all, filters, depth, scope } => views::plan(task, all, filters, depth, scope, json),
+        Cmd::Ls { task, all, filters, scope } => views::ls(task, all, filters, scope, json),
+        Cmd::Ready { blocked, filters, holds } => views::ready(blocked, filters, holds, json),
         Cmd::Loops => views::loops(json),
         Cmd::Stale => views::stale(json),
         Cmd::Forced => views::forced(json),

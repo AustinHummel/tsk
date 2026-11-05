@@ -33,9 +33,17 @@ who holds what.
 A session reports results on the card without rewriting it: `tsk edit
 <task> --append "found: ..."` adds a dated paragraph as one event. When
 the shape of the plan turns out wrong, `tsk adopt <parent> <task>...
---narrative "..."` moves tasks under another parent with their ids,
+--fit "..."` moves tasks under another parent with their ids,
 history and requirements intact, so every link in the vault still
 resolves; the number a task leaves behind stays vacant.
+
+A subagent files new work only under the task its brief names: a piece
+the task needs in order to complete goes there (`tsk amend <task> ...
+--fit "..."`), and anything that is not a piece of that task is reported
+to the coordinator rather than filed elsewhere, since placement outside
+the task is the coordinator's call. The brief says `tsk context <task>`
+is the first read, and the task's id is the one thing the brief must
+carry.
 
 ## The chain of intent
 
@@ -60,11 +68,32 @@ missing doc link, worth adding rather than reading wider.
 For the person at the top, who reads the tree rather than one task,
 `tsk ls` is one level at a time, each line carrying the id (`t16`, the
 handle every page and note uses) and the leaves under it (`7 open, 2
-ready, 3 done`); `tsk plan --depth N` cuts the outline at a level; and
-`tsk plan <task>` on a task with no children says what else attaches to
-it (the open tasks carrying its fields, the requirements on it), so a
-quest root that holds its work by `quest=` rather than by nesting is
-never a blank answer.
+ready, 3 done`); `tsk plan --depth N` cuts the outline at a level;
+`tsk ls <task> --scope` shows what each child takes, which is what an
+agent reads before claiming a part of a scope; and `tsk plan <task>` on
+a task with no children says what else attaches to it (the open tasks
+carrying its fields, the requirements on it), so the answer is never
+blank.
+
+## Standing duties and recurrences
+
+An org has work that never finishes: running a company, keeping a
+register current, watching for billing failures, a filing every year.
+One org models each as an ongoing task (`tsk ongoing <task> "<what
+belongs under it>"`): a scope with an admission test instead of a cut,
+whose children are the concrete pieces as they arise, in progress while
+nothing is open under it, and closed by hand only when the duty really
+ends. A recurrence is such a task holding one next occurrence, a finite
+child with `tsk when ... --after <date> --due <date>`; whoever completes
+one adds the next (the tool says when), and the org's own scheduled
+sessions, not tsk, are what read the clock between sessions: `tsk ready`
+shows the next date under `not before:`, and an ongoing task with nothing
+open under it in its footer. Before adding an occurrence, `tsk ls <duty>`
+is the check that another session has not already done so. A wait on an
+outside party that lapses at a deadline ("file without them if they have
+not replied by Tuesday") is `when <task> --after <deadline> "<what we
+wait for>"`, released early by hand with `--clear after` if the reply
+comes first.
 
 ## Notes and the tree: a skeleton, not a filing system
 

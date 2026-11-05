@@ -1,0 +1,10 @@
+task
+{
+  "id": "t89",
+  "title": "Release 0.6.0 (core)",
+  "parent": "t88",
+  "seq": 89,
+  "body": "Tests green on three platforms, Cargo.toml bumped, tag, assets verified. The install is timed by the org seat that commissioned the build, not by this task.",
+  "types": [],
+  "core_of": "t88"
+}

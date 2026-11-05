@@ -27,7 +27,7 @@ module does what. The constraints that void a change are in
 ```
 .tasks/
   HEAD            latest event hash; optional second line "merge <hash>"
-  config          key = value: author, editor, render.dir, lock.timeout, lock.stale
+  config          key = value: format, author, editor, render.dir, lock.timeout, lock.stale, color.ui, require.by
   log             one line per event (time, hash, kind, message, subjects, author)
   objects/<hash>  "<type>\n<json>": task | req | type | tree | snapshot | event
   .gitignore      lock, *.tmp, reflog, cache/, claims/   (written by init)
@@ -47,10 +47,14 @@ snapshot's paths; `rev-list` walks the chain.
 - **Task**: `id` (`t<n>`, from a counter), `title`, `parent`, `seq`
   (creation order; the outline number is derived from it), `body`
   (markdown, the human's), `types`, `from_item` / `core_of` (set when a
-  type is applied), `narrative` (set by breakdown), `priority`, `due`,
-  `docs`, `fields` (a `BTreeMap<String, String>`), `former` (the
-  positions it held before each adoption: `{parent, seq}`, each keeping
-  its outline number vacant under the old parent).
+  type is applied, or by the `--core` piece of a split), `narrative`
+  (set by breakdown; an ongoing task's admission test), `fit` (the part
+  of the parent this child takes; since 0.6.0), `ongoing` (the scope has
+  no last piece until closed), `after` (not workable before: a date, or
+  a time with its UTC offset), `priority`, `due`, `docs`, `fields` (a
+  `BTreeMap<String, String>`), `former` (the positions it held before
+  each adoption: `{parent, seq}`, each keeping its outline number vacant
+  under the old parent).
 - **Requirement**: one record for three uses. `from` is a `Requirer`
   (a task or a person), `on` the task it sits on, `reason` the text,
   `blocking` true for a dependency (`on` is the predecessor, `from` the
@@ -67,15 +71,18 @@ snapshot's paths; `rev-list` walks the chain.
 - **Event**: `EventKind` (init, created, edited, broken-down, amended,
   adopted, linked, required, moved, unlinked, type-added, type-edited,
   applied, flagged-as-spike, confirmed, started, paused, completed,
-  uncompleted, dropped, set, pruned, merged), `parent`, `snapshot`,
-  `time` (UTC, to the second), `author`, `message`, `subjects`, `group`
-  (a start or complete done together), `forced`, `replayed_from`.
-- **Store format**: `.tasks/config` carries `format = 1` (since 0.5.0;
+  uncompleted, dropped, closed, reopened, set, pruned, merged), `parent`,
+  `snapshot`, `time` (UTC, to the second), `author`, `message`,
+  `subjects`, `group` (a start or complete done together), `forced`,
+  `replayed_from`.
+- **Store format**: `.tasks/config` carries `format = 2` (since 0.6.0;
   `store::FORMAT`). `init` writes it, the first write by a newer binary
   raises it, `store_open` refuses a format above what the binary knows.
   A store without the line is format 0 and reads as before. The number
-  moves only when something on disk changes shape; 1 added the `adopted`
-  event kind and a task's `former` positions.
+  moves only when something on disk changes shape; 1 (0.5.0) added the
+  `adopted` event kind and a task's `former` positions; 2 (0.6.0) added
+  the `closed` and `reopened` event kinds and a task's `fit`, `ongoing`
+  and `after`.
 
 ## How a write happens (`commands.rs` → `commit.rs` → `store.rs`)
 
@@ -104,19 +111,29 @@ a warning, HEAD and its snapshot read as immutable values.
 
 - **Leaf status** is a replay of the events (`apply_event`): started,
   paused, completed, uncompleted, dropped, flagged-as-spike, confirmed,
-  each on its subjects; broken-down and applied end the parent's own
-  status, and adopted and amended end the first subject's (a leaf
-  promoted to a parent). Memoized per HEAD in the cache.
-- **`Derived::compute`** builds, per plan state: a parent's status from
-  its children (dropped children don't count; complete when every live
-  child is; in progress when any is in progress, paused or complete;
-  dropped when all are); the
+  each on its subjects; closed and reopened likewise (an ongoing task's
+  own entry: complete means closed); broken-down and applied end the
+  parent's own status, and adopted and amended end the first subject's
+  (a leaf cut into a parent). Memoized per HEAD in the cache.
+- **`Derived::compute(plan, leaf, now)`** builds, per plan state: a
+  parent's status from its children (dropped children don't count;
+  complete when every live child is; in progress when any is in
+  progress, paused or complete; dropped when all are); an ongoing task's
+  status (todo with nothing live under it unless closed; in progress
+  while running with nothing open, or closed yet gained scope; complete
+  only when closed and everything under it is complete); the
   expanded dependency graph (a requirement on a parent applies to the
   whole subtree on both ends); loops (strongly connected components over
   blocking edges, a child depending on its parent included); blocks per
-  task; readiness (leaf, not tentative, not in a loop, every blocking
-  requirement own or inherited satisfied, not dropped); tentativeness
-  (a conditional predecessor not yet complete).
+  task, including `NotBefore` for an `after` (own or inherited) still
+  ahead of `now`; readiness (leaf, not ongoing, not tentative, not in a
+  loop, every blocking requirement own or inherited satisfied, no date
+  ahead, not dropped); tentativeness (a conditional predecessor not yet
+  complete). `now` is a `clock::Moment` the caller passes (`commands::load`
+  reads it once, from `TSK_NOW` or the system clock with the local
+  offset); it touches readiness and blocks only, never a status, so the
+  memoized statuses and a merge replay are the same on every machine and
+  every day.
 - **Numbering** (`1.2.4`) is an index built once per plan state from the
   tree and `seq`, with each `former` position of an adopted task as a
   vacant slot under its old parent, so no task is ever renumbered; an
@@ -164,8 +181,8 @@ clone of this repo, so a reader without access asks him, and this file
 plus [PHILOSOPHY.md](../PHILOSOPHY.md) and [agent-orgs.md](agent-orgs.md)
 are the public record):
 
-- `cli-design.md`: Git's philosophy applied, version by version (0.1 to
-  0.4.2), including what each release's dogfooding found.
+- `cli-design.md`: Git's philosophy applied, version by version (0.1 on),
+  including what each release's dogfooding found.
 - `task-model.md`: the task model as Austin stated it, the rules every
   refusal comes from.
 - `cli-requirements.md` and `planning-philosophy.md`: what the tool must

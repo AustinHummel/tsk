@@ -13,8 +13,8 @@ commands are the [README](README.md); the mindset is
 A CLI for planning and tracking work, built the way Git is built: every
 change is an immutable event pointing at a snapshot of the whole plan, and
 status, readiness and loops are computed from history, never stored. Rust
-2021, one binary, pure-Rust dependencies, about 6,000 lines in thirteen
-modules under `src/`, 38 end-to-end tests under `tests/`. Version 0.5.0
+2021, one binary, pure-Rust dependencies, about 7,000 lines in fourteen
+modules under `src/`, 48 end-to-end tests under `tests/`. Version 0.6.0
 (`Cargo.toml`). Public at https://github.com/AustinHummel/tsk, MIT.
 
 It is Austin Hummel's tool, maintained by his org's agents (his decision,
@@ -89,8 +89,8 @@ pass `--manifest-path C:\Projects\tsk\Cargo.toml`), and what green means:
 cd /c/Projects/tsk && nice -n 10 ~/.cargo/bin/cargo.exe test --locked
 ```
 
-Green is **38 passed, 0 failed** as of 0.5.0 (8 in `tests/cli.rs`, 13 in
-`tests/agent_org.rs`, 6 in `tests/merge.rs`, 11 in `tests/trial.rs`, 0 in
+Green is **48 passed, 0 failed** as of 0.6.0 (12 in `tests/cli.rs`, 15 in
+`tests/agent_org.rs`, 7 in `tests/merge.rs`, 14 in `tests/trial.rs`, 0 in
 `src/`), about 10 s on a warm `target/`, a few minutes on a cold one. A change that adds a test
 updates this count in the same commit. `--locked` holds the committed
 `Cargo.lock`; CI uses it too.
@@ -153,8 +153,10 @@ For a change here:
 - A change starts as a task. A fix or feature on its own is a root:
   `tsk add "<title>" --by "<who>: <why>"`. Work that belongs to a
   release in progress is a child of that release's root, added with
-  `tsk amend <root> "<title>" --narrative "<how it fits>"` (children
-  come only from `breakdown` or `amend`); `tsk plan` shows the roots, and
+  `tsk amend <root> "<title>" --fit "<which part of the release it takes>"`
+  (children come only from `breakdown`, `amend` or `adopt`; a leaf that
+  gains a child is cut in two by naming the piece it keeps, `--core
+  "<title>"`); `tsk plan` shows the roots, and
   a release in progress is a root not yet marked `[x]` (its release-typed
   child still open). `start` it; `complete` it;
   a change that is not going to happen is `drop`ped with a reason.
@@ -211,7 +213,8 @@ major release (1.0.0)". The first three were settled before he ruled.
 
 ## Store format and upgrades
 
-Since 0.5.0 `.tasks/config` carries `format = 1` (`store::FORMAT`):
+Since 0.5.0 `.tasks/config` carries a `format` line (`store::FORMAT`,
+2 since 0.6.0):
 `init` writes it, the first write by a newer binary raises it, and a
 binary meeting a format above what it knows refuses every command with
 one sentence naming the version needed. A store from before 0.5.0 has
@@ -224,7 +227,11 @@ line, so it still fails only when it hits what it cannot parse (the
 Raise `FORMAT` only when something on disk changes shape (a new event
 kind, a new field a reader must honour), as its own task in the store,
 and keep reading every older form. 1 added the `adopted` event and a
-task's `former` positions.
+task's `former` positions; 2 added the `closed` and `reopened` events and
+a task's `fit`, `ongoing` and `after` (a 0.5.0 that ignored `ongoing`
+would derive a running business as complete, and one that rewrote a
+task on `edit` would drop the fields). A release that raises it says so
+in its notes: every machine sharing a store upgrades together.
 
 Operating rule now (the org's pilot rule, 2026-11-03): **a store's
 machines upgrade tsk together, at a quiet point**, with the store

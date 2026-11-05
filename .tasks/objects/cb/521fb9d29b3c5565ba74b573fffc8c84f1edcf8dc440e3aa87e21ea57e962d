@@ -1,0 +1,9 @@
+task
+{
+  "id": "t85",
+  "title": "merge replays closed and reopened; store format 2",
+  "parent": "t80",
+  "seq": 85,
+  "body": "`is_status` includes both kinds; `task_changed` three-ways `fit`, `ongoing`, `after`; the closed-then-gained-scope report line; `store::FORMAT = 2` with a format-1 fixture test.",
+  "types": []
+}

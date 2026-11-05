@@ -1,0 +1,17 @@
+task
+{
+  "id": "t91",
+  "title": "The version in Cargo.toml is bumped and the tag vX.Y.Z points at it",
+  "parent": "t88",
+  "seq": 91,
+  "body": "",
+  "types": [],
+  "from_item": [
+    "release",
+    "tag"
+  ],
+  "docs": [
+    "README.md",
+    ".github/workflows/release.yml"
+  ]
+}

@@ -33,6 +33,41 @@ and sometimes the siblings along the way. Nothing else is needed. That is
 what makes the method work at any depth: you never need the whole plan in
 your head, only the path down to where you are.
 
+The test for whether something is a child of a task is not "is it
+related" or "was it found while working here" but: *is the parent
+incomplete until this is done?* If the parent would be honestly complete
+without it, it belongs elsewhere, and the narrowest task that does need
+it is its parent. A child added after the breakdown says which part of
+the parent it takes, so the parent's narrative stays the description of
+the cut rather than a log of arrivals. When a task that had no children
+gains one, the person cuts it in two and names both pieces; a tool that
+wrote a placeholder would be doing the breakdown's job badly (Austin, on
+seeing one: "That's hardly a step-by-step breakdown").
+
+## Scopes that don't end
+
+Some scopes have no last piece. Austin: "long-running tasks like 'Run
+this business' ... will act more as a folder where scope is expected to
+be added regularly ... even when all children are complete, it's not
+complete itself, until it's manually closed." Such an **ongoing** task
+is still a scope, and everything under it is still a piece of it (the
+same test applies), but no finite set of children defines its
+completion. Its narrative is therefore an admission test, what belongs
+under it and what does not, rather than the proof of a cut; it is never
+ready, never started or completed itself, and it is complete only when
+someone declares the scope shut and nothing under it is open. Declaring
+is intent, like a priority; closing is history, like a completion. A
+childless ongoing task is a standing duty, waiting in the tree until a
+piece of it becomes concrete. Nothing can honestly depend on an ongoing
+task, since it never completes on its own: a dependency names the piece
+that is waited on, or the finite task that means "it exists". A duty that
+repeats is an ongoing task holding one next occurrence at a time, dated;
+whoever completes one adds the next, and the tool says when that moment
+has come. A date, in this picture, is a predecessor that completes by
+itself: a task gated by one is blocked exactly as it would be by an
+unfinished predecessor, and nothing fires, because status is history and
+history is written only by people.
+
 ## Reasons are what make it recursive
 
 A dependency isn't "A before B". It's "B requires *this* of A". The reason

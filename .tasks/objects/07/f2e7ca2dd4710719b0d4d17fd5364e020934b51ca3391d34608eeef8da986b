@@ -1,0 +1,9 @@
+task
+{
+  "id": "t80",
+  "title": "0.6.0: placement, ongoing scopes and dated work",
+  "parent": null,
+  "seq": 80,
+  "body": "The design of 2026-11-05 (austin-org, org/org-development/process-study/hierarchy-ongoing-repeating-design-2026-11-05.md): a child carries a fit instead of appending to the parent's narrative; a leaf that gains a child is cut by the person (--core); ongoing tasks, closed by hand; after/due on any task with tsk when, local times stored with their UTC offset; ready's calendar sections; store format 2.",
+  "types": []
+}

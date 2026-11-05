@@ -32,11 +32,26 @@ pub struct Task {
     /// Set on the `core` child made when a type is applied.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub core_of: Option<TaskId>,
-    /// How the children together fulfill this task. Set by breakdown.
+    /// How the children together fulfill this task. Set by breakdown; for
+    /// an ongoing task, what belongs under it (the admission test).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub narrative: Option<String>,
+    /// Which part of the parent's scope this child takes. Set by amend,
+    /// adopt or edit; generated for the piece a split names with `--core`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fit: Option<String>,
+    /// The scope has no last piece until it is closed: complete only when
+    /// closed and nothing under it is open; never ready.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ongoing: bool,
+    /// Not workable before this date (`YYYY-MM-DD`, the start of that local
+    /// day) or moment (`YYYY-MM-DDTHH:MM±HH:MM`); inherited by everything
+    /// under the task, like a blocking requirement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<String>,
+    /// Free text; a date or time in the stored form is read as one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub due: Option<String>,
     /// Paths or URLs of the documents this task serves or produced.
@@ -207,6 +222,11 @@ pub enum EventKind {
     Completed,
     Uncompleted,
     Dropped,
+    /// An ongoing task was declared to have no more scope; complete once
+    /// nothing under it is open.
+    Closed,
+    /// A closed ongoing task takes scope again.
+    Reopened,
     /// Fields or docs changed on a task or requirement.
     Set,
     /// Old snapshots were removed; the plan is unchanged.
@@ -238,6 +258,8 @@ impl EventKind {
             EventKind::Completed => "completed",
             EventKind::Uncompleted => "uncompleted",
             EventKind::Dropped => "dropped",
+            EventKind::Closed => "closed",
+            EventKind::Reopened => "reopened",
             EventKind::Set => "set",
             EventKind::Pruned => "pruned",
             EventKind::Merged => "merged",

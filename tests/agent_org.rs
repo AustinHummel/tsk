@@ -262,7 +262,7 @@ fn reasons_and_bodies_may_start_with_a_dash() {
     let p = Proj::new("dash");
     dana(&p);
     p.ok(&["link", "1.1", "1.3", "--git is the flag it needs"]);
-    p.ok(&["amend", "1", "Fixes", "--narrative", "- found while dogfooding", "-b", "- a bullet list"]);
+    p.ok(&["amend", "1", "Fixes", "--fit", "- found while dogfooding", "-b", "- a bullet list"]);
     assert!(p.ok(&["show", "1.4"]).contains("- a bullet list"));
     p.ok(&["drop", "1.4", "-- not needed"]);
 }
@@ -350,4 +350,55 @@ fn a_reported_save_is_always_on_the_line_even_with_stale_locks_broken_at_once() 
     // The log agrees with the line.
     let log_lines = p.read(".tasks/log").lines().filter(|l| !l.starts_with('#')).count();
     assert_eq!(log_lines, after);
+}
+
+// ----- 0.6 ------------------------------------------------------------------
+
+#[test]
+fn a_root_without_by_is_noted_and_refused_under_require_by() {
+    let p = Proj::new("require-by");
+    let out = p.ok(&["add", "x"]);
+    assert!(out.contains("nobody has asked for this; tsk by t1 <person> \"<why>\" records who did"), "{}", out);
+    assert!(!p.ok(&["add", "x2", "--by", "A: b"]).contains("nobody has asked"));
+    p.ok(&["config", "require.by", "true"]);
+    let msg = p.fails(&["add", "y"]);
+    assert!(msg.contains("every root needs --by here (config require.by)"), "{}", msg);
+    assert!(!p.ok(&["plan"]).contains(" y"));
+    p.ok(&["add", "y", "--by", "A: b"]);
+    assert!(!p.ok(&["--json", "add", "z", "--by", "A: b"]).contains("nobody"));
+}
+
+#[test]
+fn a_format_1_store_from_0_5_0_still_loads_and_rises_to_2() {
+    use sha2::Digest;
+    let p = Proj::new("format1");
+    // A store in 0.5.0's exact form: format 1, a task object without the
+    // 0.6.0 fields, a tree snapshot, and an `adopted` event.
+    std::fs::write(p.dir.join(".tasks/config"), "# tsk config: key = value\nformat = 1\n").unwrap();
+    let objects = p.dir.join(".tasks/objects");
+    let write = |ty: &str, json: &str| -> String {
+        let text = format!("{}\n{}\n", ty, json);
+        let hash = hex::encode(sha2::Sha256::digest(text.as_bytes()));
+        let dir = objects.join(&hash[..2]);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(&hash[2..]), text).unwrap();
+        hash
+    };
+    let task = write("task", r#"{"id":"t1","title":"from 0.5.0","parent":null,"seq":2,"body":"","types":[],"former":[{"parent":null,"seq":1}]}"#);
+    let tree = write("tree", &format!(r#"{{"entries":[{{"id":"t1","task":"{}"}}]}}"#, task));
+    let snap = write("snapshot", &format!(r#"{{"version":2,"tree":"{}","types":{{}},"next_task":2,"next_req":0}}"#, tree));
+    let head = p.ok(&["rev-list"]).lines().next().unwrap().to_string();
+    let ev = write(
+        "event",
+        &format!(r#"{{"kind":"Adopted","parent":"{}","snapshot":"{}","time":"2026-11-04T00:00:00Z","author":"old","message":"adopt 1 under 2","subjects":["t1"]}}"#, head, snap),
+    );
+    std::fs::write(p.dir.join(".tasks/HEAD"), format!("{}\n", ev)).unwrap();
+    assert!(p.read(".tasks/config").contains("format = 1"));
+    let plan = p.ok(&["plan"]);
+    assert!(plan.contains("from 0.5.0") && plan.contains("<ready>"), "{}", plan);
+    assert!(p.read(".tasks/config").contains("format = 1"), "a read raises nothing");
+    assert!(p.fails(&["show", "1"]).contains("is now 2"), "the vacated position is read from `former`");
+    p.ok(&["amend", "t1", "piece", "--fit", "a part", "--core", "the rest"]);
+    assert!(p.read(".tasks/config").contains("format = 2"), "{}", p.read(".tasks/config"));
+    assert!(p.ok(&["plan"]).contains("from 0.5.0"));
 }

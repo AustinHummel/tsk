@@ -1,0 +1,17 @@
+task
+{
+  "id": "t90",
+  "title": "Every test passes locally and in CI on all three platforms",
+  "parent": "t88",
+  "seq": 90,
+  "body": "2026-11-05: 48 green locally (12 cli, 15 agent_org, 7 merge, 14 trial) at low priority; CI on three platforms pending the push.",
+  "types": [],
+  "from_item": [
+    "release",
+    "tests"
+  ],
+  "docs": [
+    "README.md",
+    ".github/workflows/release.yml"
+  ]
+}

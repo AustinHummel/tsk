@@ -1,0 +1,9 @@
+task
+{
+  "id": "t82",
+  "title": "ongoing tasks: ongoing, close, reopen, and their refusals",
+  "parent": "t80",
+  "seq": 82,
+  "body": "Model field `ongoing`; event kinds `closed` and `reopened`; the derivation in state.rs; refusals on start/complete/pause/spike/apply/uncomplete/link/adopt; the nudge on completing the last open piece; never ready.",
+  "types": []
+}

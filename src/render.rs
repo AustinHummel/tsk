@@ -57,12 +57,24 @@ fn page(c: &Ctx, id: &str, rel_dir: &str) -> String {
     s.push_str("aliases:\n");
     s.push_str(&format!("  - \"{} {}\"\n", num, t.title.replace('"', "'")));
     s.push_str(&format!("status: {}\n", st.name()));
+    if t.ongoing {
+        s.push_str("ongoing: true\n");
+    }
+    if let Some(a) = &t.after {
+        s.push_str(&format!("after: \"{}\"\n", a));
+    }
+    if let Some(d) = &t.due {
+        s.push_str(&format!("due: \"{}\"\n", d.replace('"', "'")));
+    }
     for (k, v) in &t.fields {
         s.push_str(&format!("{}: \"{}\"\n", k, v.replace('"', "'")));
     }
     s.push_str("---\n");
     s.push_str(&format!("# {} {}\n\n", num, t.title));
     let mut facts = vec![format!("`{}`", id), format!("status **{}**", st.name())];
+    if t.ongoing {
+        facts.push(if c.derived.is_closed(&c.plan, &c.leaf, id) { "ongoing, closed".into() } else { "ongoing".into() });
+    }
     if c.derived.is_ready(&c.plan, id) {
         facts.push("ready".into());
     }
@@ -72,12 +84,21 @@ fn page(c: &Ctx, id: &str, rel_dir: &str) -> String {
     if !t.types.is_empty() {
         facts.push(format!("type {}", t.types.join(", ")));
     }
+    if let Some(a) = &t.after {
+        facts.push(format!("after {}", a));
+    }
+    if let Some(d) = &t.due {
+        facts.push(format!("due {}{}", d, if c.derived.is_overdue(&c.plan, id) { " (overdue)" } else { "" }));
+    }
     s.push_str(&facts.join(" · "));
     s.push('\n');
     let chain = c.plan.ancestors_and_self(id);
     if chain.len() > 1 {
         let path: Vec<String> = chain[..chain.len() - 1].iter().map(|a| link(c, &a.id)).collect();
         s.push_str(&format!("\nPath: {}\n", path.join(" › ")));
+        if let Some(f) = &t.fit {
+            s.push_str(&format!("\nFits: {}\n", f));
+        }
     }
     let persons: Vec<String> = c
         .plan
@@ -107,14 +128,15 @@ fn page(c: &Ctx, id: &str, rel_dir: &str) -> String {
         s.push('\n');
     }
     let kids = c.plan.children(id);
-    if !kids.is_empty() {
-        s.push_str("\n## Breakdown\n\n");
+    if !kids.is_empty() || (t.ongoing && t.narrative.is_some()) {
+        s.push_str(if t.ongoing { "\n## Admits\n\n" } else { "\n## Breakdown\n\n" });
         if let Some(n) = &t.narrative {
             s.push_str(n.trim_end());
             s.push_str("\n\n");
         }
         for k in kids {
-            s.push_str(&format!("- {} {}\n", checkbox(c.derived.status(&k.id)), link(c, &k.id)));
+            let fit = k.fit.as_ref().map(|f| format!(": {}", f)).unwrap_or_default();
+            s.push_str(&format!("- {} {}{}\n", checkbox(c.derived.status(&k.id)), link(c, &k.id), fit));
         }
     }
     let from = c.plan.reqs_from(id);
@@ -165,6 +187,12 @@ fn index(c: &Ctx) -> String {
         }
         if c.derived.in_loop.contains_key(id) {
             tags.push("loop");
+        }
+        if c.plan.tasks[id].ongoing {
+            tags.push("ongoing");
+        }
+        if c.derived.is_overdue(&c.plan, id) {
+            tags.push("overdue");
         }
         let tag = if tags.is_empty() { String::new() } else { format!(" *{}*", tags.join(", ")) };
         s.push_str(&format!("{}- {} {}{}\n", "  ".repeat(depth), checkbox(st), link(c, id), tag));

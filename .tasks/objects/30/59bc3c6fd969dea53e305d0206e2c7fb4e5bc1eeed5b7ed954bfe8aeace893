@@ -1,0 +1,9 @@
+task
+{
+  "id": "t83",
+  "title": "dates: after and due, tsk when, TSK_NOW, local times with their UTC offset",
+  "parent": "t80",
+  "seq": 83,
+  "body": "`after` on any task, inherited; `when --after/--due/--clear`; `add --after`; `Block::NotBefore`; `overdue` and `not before` tags; `Derived::compute` takes the moment from its caller and never reads the clock; a time is local when entered and stored with its UTC offset (the org's correction to the design's UTC date).",
+  "types": []
+}

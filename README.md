@@ -24,7 +24,9 @@ version:
 2. **Break it down one layer at a time, atomically.** Children cover the
    parent's scope exactly; the parent gets a narrative of how they fit;
    every requirement touching the parent is handed to the child it belongs
-   to, or kept on the parent when all of them need it.
+   to, or kept on the parent when all of them need it. A child added later
+   says which part of the parent it takes (`--fit`); a task is a child only
+   when the parent is not complete until it is done.
 3. **Write every dependency you can see, with its reason**, even when it
    makes a loop. The reason is what the successor requires of the
    predecessor, and it travels down at the next breakdown.
@@ -69,12 +71,15 @@ Process (porcelain):
 | Command | What it does |
 |---|---|
 | `init` | Create `.tasks/` here. |
-| `add <title> [--by "Who: why"] [-b body] [--priority p] [--due d]` | A root task. Children only come from `breakdown` or `amend`. Priority and due are free text, set only here. |
+| `add <title> [--by "Who: why"] [-b body] [--priority p] [--due d] [--after DATE] [--ongoing "<admits>"]` | A root task. Children only come from `breakdown`, `amend` or `adopt`. Without `--by` it says so (`config require.by true` refuses instead). `--ongoing` declares a scope whose last piece is not yet known, with what belongs under it. |
 | `breakdown <task> [-F file]` | Children, narrative, and the disposition of every requirement, in one event. `--template` prints the file to fill in; with no `-F` it opens in `$EDITOR`. |
-| `amend <parent> <title> --narrative "..."` | Add a child along with the scope it covers. A leaf parent is promoted first: its own scope becomes a `(core)` child. |
-| `adopt <parent> <task>... --narrative "..."` | Move existing tasks under a parent, keeping their ids, history, children, requirements, docs and fields. A leaf parent is promoted as `amend` does; a broken-down one has the narrative appended. |
-| `edit <task> [-b body \| -F file] [--append text] [--title] [--narrative]` | Change the card. `--append` adds a dated paragraph (`2026-11-04: ...`) and keeps what is there. |
-| `link <pred> <succ> "<reason>" [--conditional]` | A dependency. `--conditional` makes the successor tentative. |
+| `amend <parent> <title> --fit "..." [--narrative "..."] [--core "<title>" [--core-body b]] [--after DATE] [--due d]` | Add a child with the part of the parent's scope it takes. `--narrative` replaces the parent's cut (nothing is appended). A parent with no children yet is cut in two: `--core` names the piece that holds its own work; the tool never writes a placeholder. Two children never take the same part. |
+| `adopt <parent> <task>... --fit "..." [--narrative "..."] [--core "<title>"]` | Move existing tasks under a parent, keeping their ids, history, children, requirements, docs and fields; the fit is recorded on each. A leaf parent is cut as `amend` does. |
+| `edit <task> [-b body \| -F file] [--append text] [--title] [--narrative] [--fit]` | Change the card. `--append` adds a dated paragraph (`2026-11-04: ...`) and keeps what is there. `--narrative` also sets a childless ongoing task's admission test. |
+| `ongoing <task> "<admits>" \| --off` | Declare a task ongoing: its last child is not yet known, so it is complete only when closed; the text is what belongs under it. Refused on a predecessor. |
+| `close <task> "<reason>"`, `reopen <task>` | Shut an ongoing scope (refused while anything under it is open), and open it again. |
+| `when <task> [--after DATE] [--due TEXT] [--clear after\|due] ["<why>"]` | Dates: not workable before `--after` (inherited by everything under it), and when it is `--due`. One event; the reason records what the date stands for. |
+| `link <pred> <succ> "<reason>" [--conditional]` | A dependency. `--conditional` makes the successor tentative. Refused onto an ongoing task (it never completes on its own); onto a parent it notes how many open tasks it waits on. |
 | `require <from> <on> "<reason>"` | A technical requirement: scope, not ordering. |
 | `by <task> <person> "<reason>"` | Who requires it. |
 | `move <req> [--from t] [--on t]`, `unlink <req>` | Refactor a requirement. |
@@ -85,11 +90,11 @@ Process (porcelain):
 | `spike`, `confirm`, `start`, `pause`, `complete`, `uncomplete`, `drop` | State changes, each one event. `start` and `complete` take a group. |
 | `show <task>` | The card with everything needed to work it. |
 | `context <task> [--full]` | The chain of intent from the root to the task: who asked, each level's narrative, docs and fields, then the card, its requirements, siblings and children. |
-| `plan [task] [-a] [--where k=v] [--depth N]` | The outline with status: `[ ] 1.2 t3 Title`. A parent whose finished children are hidden says `(3 done)`; a childless task says what else attaches to it. |
-| `ls [task] [-a] [--where k=v]` | One level, flat: the roots, or a task's children, each with the leaves under it: `(7 open, 2 ready, 3 done)`. |
-| `ready [--blocked] [--where k=v]` | Your own tasks in progress first, then what can start now, and what each blocked leaf waits on. |
+| `plan [task] [-a] [--where k=v] [--depth N] [--scope]` | The outline with status: `[ ] 1.2 t3 Title`. A parent whose finished children are hidden says `(3 done)`; a childless task says what else attaches to it. `--scope` prints under each task the part it takes (its fit), else the first line of its narrative or body. |
+| `ls [task] [-a] [--where k=v] [--scope]` | One level, flat: the roots, or a task's children, each with the leaves under it: `(7 open, 2 ready, 3 done)`. `ls <parent> --scope` shows what each child already takes, before claiming a part. |
+| `ready [--blocked] [--where k=v] [--holds]` | Your own tasks in progress first, then what can start now (with its due date), then `not before:` (what a date is holding back, soonest first), what each blocked leaf waits on, and which ongoing tasks have nothing open under them. `--holds` says what each ready task holds up. |
 | `loops` | Every dependency loop and the requirements forming it. |
-| `stale`, `forced`, `log [task]` | Review views. |
+| `stale`, `forced`, `log [task]` | Review views. `stale` also lists each ongoing task (how many open under it, when scope was last added) and split pieces still carrying the parent's card. |
 | `diff [task] [--from E] [--to E] [--git [REV]]` | What changed in the plan (or one task) between two events; by default since the store's last git commit. |
 | `render [--dir d]` | One markdown page per task, plus an outline, for a vault to browse and link. |
 | `backlinks <task>` | Markdown files in the project that link to the task's page. |
@@ -97,7 +102,7 @@ Process (porcelain):
 | `reflog`, `reset <event>` | Every move of HEAD on this copy, and the way back to any of them. |
 | `merge [theirs] [--prefer ours\|theirs] [--dry-run]` | Replay another copy's events onto ours. |
 | `git-setup` | Register the git merge driver for `.tasks/HEAD` (once per machine). |
-| `config [key [value]]` | `author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`, `color.ui`. |
+| `config [key [value]]` | `author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`, `color.ui`, `require.by` (`true`: a root without `--by` is refused). |
 
 Plumbing: `cat-object <hash>`, `hash-object [file]`, `ls-snapshot [event]`,
 `rev-list`, `merge-driver`. Every view takes `--json`.
@@ -114,6 +119,49 @@ The human views are coloured, subtly and in git's spirit, when stdout is
 a terminal: `--color auto|always|never` (default `auto`), config
 `color.ui` (`true`, `false`, `always`), and `NO_COLOR` are respected.
 Output piped to a file or printed with `--json` is never coloured.
+
+## Ongoing scopes
+
+Some scopes have no last piece: running a business, keeping a register
+current, a duty that repeats. `tsk add ... --ongoing "<what belongs under
+it>"`, or `tsk ongoing <task> "<...>"` on an existing one, declares that.
+Its narrative is then an admission test rather than the proof of a cut:
+what belongs under it and what does not. Its children are ordinary finite
+pieces, each still a part of the scope (`--fit` says which); it is in
+progress while nothing under it is open, never ready, never started or
+completed itself, and complete only when someone `close`s it with a
+reason and nothing under it is open. `reopen` takes that back. A childless
+ongoing task is a standing duty: it waits in the tree until a piece of it
+becomes concrete. Nothing may depend on an ongoing task (it never
+completes on its own): link the piece you wait on, or the finite task
+that means "it exists". When the last open piece under one completes,
+the tool says so, so the next piece can be added or the scope closed.
+
+A recurring duty is an ongoing task holding one next occurrence at a time:
+a finite child with `--after` and `--due`. Whoever completes one adds the
+next; `ready` shows the dated one under `not before:` until its day, and
+lists any ongoing task with something finished and nothing open under it.
+
+## Dates
+
+`tsk when <task> --after 2027-03-16 --due 2027-04-09 "<why>"` puts dates
+on any task. `after` is a predecessor that completes on its own: the task,
+and everything under it, is not ready before that moment, and `start` is
+refused until then (`--force` records an early start). A date alone,
+`2027-03-16`, means the start of that day in the local time of whoever
+reads it; a time, `2027-03-16T09:00`, is local when entered and stored
+with its UTC offset (`2027-03-16T09:00-05:00`), so every machine reads the
+same moment. `due` is free text, and a date or time in it is compared:
+the views tag an open task past it `overdue`. Nothing fires and nothing
+is scheduled: the block clears when a command next reads the clock, and
+`tsk ready` is where a date shows, under `not before:` with its due date.
+A wait on someone outside the plan that lapses at a deadline is the same
+`after` set to the deadline, with the body saying what releases it early;
+`when <task> --clear after "<they replied>"` releases it by hand.
+Readiness is the only thing a date touches: statuses never depend on the
+clock, so the same history derives the same statuses on every machine
+and every day. `TSK_NOW=2027-03-16` (or `2027-03-16T09:00`) stands in
+for the clock, for tests and for "what will be ready on Monday".
 
 ## Which store
 
@@ -229,11 +277,13 @@ and 966 events, `ready` and `plan` take under 20 ms and a change under
 50 ms (Windows, i7). The views that show history (`log`, `show`,
 `forced`, `diff`) still read it, and `prune` is for size, not speed.
 
-`.tasks/config` declares the store's `format` (1 since 0.5.0; a store
-from before carries no line and reads as before, and the first write by
-a 0.5.0 binary adds it). A binary that meets a format newer than it
-knows refuses with one sentence naming the version needed, rather than
-misread the store; every older form is always read.
+`.tasks/config` declares the store's `format` (1 since 0.5.0, 2 since
+0.6.0; a store from before carries no line and reads as before, and the
+first write by a newer binary raises it). A binary that meets a format
+newer than it knows refuses with one sentence naming the version needed,
+rather than misread the store; every older form is always read. Every
+machine sharing a store upgrades together: once one 0.6.0 writes, a
+0.5.0 on another machine refuses until it is upgraded.
 
 Commit `.tasks/` with your project. `.tasks/log` has one line per event
 (time, event, kind, message, tasks, author), appended by every command, so
@@ -298,8 +348,10 @@ asked for. Prune to the oldest event you still diff against.
 ## Model
 
 - **Task**: id, title, parent, body (markdown, yours), narrative (set by
-  breakdown), types, priority, due, docs, fields, and the positions it
-  held before it was adopted elsewhere (each keeps its number vacant).
+  breakdown; an ongoing task's admission test), fit (the part of the
+  parent it takes), ongoing, after, types, priority, due, docs, fields,
+  and the positions it held before it was adopted elsewhere (each keeps
+  its number vacant).
 - **Requirement**: `{from, on, reason, blocking, conditional, fields}`, one
   record for a dependency (blocking), a technical requirement, and a
   "required by person" entry. Shown from both sides; a person's is
@@ -309,13 +361,15 @@ asked for. Prune to the oldest event you still diff against.
   `item:<id>`, or a task), optionally `--pending <task>` or `--when`;
   docs on the type and its items are inherited by every instance.
 - **Event**: kind (`created`, `broken-down`, `amended`, `adopted`,
-  `edited`, `started`, ... ), parent event, snapshot, time, author,
-  message, subjects, group, forced.
+  `edited`, `started`, `closed`, `reopened`, ... ), parent event,
+  snapshot, time, author, message, subjects, group, forced.
 
-Derived: a parent is complete when its children are; a parent as
+Derived: a parent is complete when its children are; an ongoing task is
+complete when it is closed and nothing under it is open; a parent as
 predecessor is complete when everything under it is; a child depending on
-its parent is a loop like any other; ready = leaf, not tentative, no loop,
-every blocking requirement (own or inherited) satisfied. A field set on a
+its parent is a loop like any other; ready = leaf, not ongoing, not
+tentative, no loop, every blocking requirement (own or inherited)
+satisfied, no `after` (own or inherited) still ahead. A field set on a
 task is inherited by everything under it for `--where`.
 
 This repository plans itself: `tsk log` in a clone shows how every

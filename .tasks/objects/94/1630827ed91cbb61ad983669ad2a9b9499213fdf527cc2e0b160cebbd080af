@@ -1,0 +1,21 @@
+event
+{
+  "kind": "BrokenDown",
+  "parent": "d5e291b3aca0938d9a25f03efb8f7b68fde6c037903dfdd21aa2d8d95b58df0e",
+  "snapshot": "6707755e6ed2b9990ecd2ec08ead66ffd2103e2a3e652fa37a8c5da4a4152185",
+  "time": "2026-11-05T20:26:36Z",
+  "author": "fable implementer-0.6.0 2026-11-05",
+  "message": "breakdown 9 into 8 children",
+  "subjects": [
+    "t80",
+    "t81",
+    "t82",
+    "t83",
+    "t84",
+    "t85",
+    "t86",
+    "t87",
+    "t88"
+  ],
+  "forced": false
+}

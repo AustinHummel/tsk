@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "955e8ae5dac158b0f1979a6734df1257cc1241025dc5a24a6771ebd2fb629f2a",
+  "snapshot": "c7d254fb754c8c5d4ac46eb6a3137bdef906b279ab73cb45f9dec767251f9621",
+  "time": "2026-11-05T20:26:36Z",
+  "author": "fable implementer-0.6.0 2026-11-05",
+  "message": "add 0.6.0: placement, ongoing scopes and dated work",
+  "subjects": [
+    "t80"
+  ],
+  "forced": false
+}

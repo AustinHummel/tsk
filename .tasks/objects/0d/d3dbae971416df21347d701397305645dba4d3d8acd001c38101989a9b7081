@@ -1,0 +1,18 @@
+event
+{
+  "kind": "Applied",
+  "parent": "941630827ed91cbb61ad983669ad2a9b9499213fdf527cc2e0b160cebbd080af",
+  "snapshot": "066fb6c544ce89e33acb587ecca3771886bc241d719dd3cd152ef1f999cb7ed7",
+  "time": "2026-11-05T20:26:36Z",
+  "author": "fable implementer-0.6.0 2026-11-05",
+  "message": "apply release to 9.8",
+  "subjects": [
+    "t88",
+    "t89",
+    "t90",
+    "t91",
+    "t92",
+    "t93"
+  ],
+  "forced": false
+}

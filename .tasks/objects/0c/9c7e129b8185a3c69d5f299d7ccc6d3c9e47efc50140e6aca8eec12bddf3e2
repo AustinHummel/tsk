@@ -1,0 +1,17 @@
+task
+{
+  "id": "t90",
+  "title": "Every test passes locally and in CI on all three platforms",
+  "parent": "t88",
+  "seq": 90,
+  "body": "",
+  "types": [],
+  "from_item": [
+    "release",
+    "tests"
+  ],
+  "docs": [
+    "README.md",
+    ".github/workflows/release.yml"
+  ]
+}

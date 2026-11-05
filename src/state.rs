@@ -1,6 +1,11 @@
 //! Everything derived: status from the event log, the expanded dependency
-//! graph, loops, and readiness. Nothing here is ever stored.
+//! graph, loops, and readiness. Nothing here is ever stored, and nothing
+//! here reads the clock: the moment a date is compared against comes from
+//! the caller (`Derived::compute`), and it touches readiness only, never a
+//! status, so the same history derives the same statuses on every machine
+//! and every day.
 
+use crate::clock::{self, Moment};
 use crate::model::*;
 use crate::plan::Plan;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -47,6 +52,9 @@ pub fn apply_event(out: &mut HashMap<TaskId, Status>, ev: &Event) {
         EventKind::Uncompleted => Status::Todo,
         EventKind::Dropped => Status::Dropped,
         EventKind::FlaggedAsSpike => Status::Spike,
+        // On an ongoing task: closed is its own entry being complete.
+        EventKind::Closed => Status::Complete,
+        EventKind::Reopened => Status::Todo,
         EventKind::BrokenDown | EventKind::Applied | EventKind::Adopted | EventKind::Amended => Status::Todo,
         _ => return,
     };
@@ -89,6 +97,8 @@ pub struct Derived {
     /// Strongly connected components of size > 1 or with a self edge.
     pub loops: Vec<Loop>,
     pub in_loop: HashMap<TaskId, usize>,
+    /// The moment readiness is judged at.
+    pub now: Moment,
 }
 
 #[derive(Debug, Clone)]
@@ -107,10 +117,15 @@ pub enum Block {
     /// the predecessor as the requirement names it, the requirement, and
     /// how many open tasks under the predecessor remain.
     Waiting(TaskId, ReqId, usize),
+    /// A date that has not come: the task or ancestor carrying `after`,
+    /// and the date as stored.
+    NotBefore(TaskId, String),
 }
 
 impl Derived {
-    pub fn compute(plan: &Plan, leaf: &HashMap<TaskId, Status>) -> Derived {
+    /// `now` is the moment dates are compared against; it is held here
+    /// and used by `blocks` and `is_ready` only.
+    pub fn compute(plan: &Plan, leaf: &HashMap<TaskId, Status>, now: Moment) -> Derived {
         let leaf = leaf.clone();
         let mut status = BTreeMap::new();
         let mut memo: HashMap<TaskId, Status> = HashMap::new();
@@ -195,7 +210,7 @@ impl Derived {
         for ((p, f), rs) in &edges {
             in_edges.entry(f.clone()).or_default().push((p.clone(), rs.clone()));
         }
-        Derived { status, in_edges, reqs_from, loops, in_loop }
+        Derived { status, in_edges, reqs_from, loops, in_loop, now }
     }
 
     pub fn status(&self, id: &str) -> Status {
@@ -229,13 +244,57 @@ impl Derived {
             let on = plan.reqs[&r].on.clone();
             out.push(Block::Waiting(on, r, n));
         }
+        for anc in plan.ancestors_and_self(id) {
+            if let Some(a) = &anc.after {
+                if clock::parse(a).map(|w| self.now.before(&w)).unwrap_or(false) {
+                    out.push(Block::NotBefore(anc.id.clone(), a.clone()));
+                }
+            }
+        }
         out
     }
 
+    /// The date holding a task back, own or inherited, when one does.
+    pub fn not_before(&self, plan: &Plan, id: &str) -> Option<(TaskId, String)> {
+        self.blocks(plan, id).into_iter().find_map(|b| match b {
+            Block::NotBefore(t, d) => Some((t, d)),
+            _ => None,
+        })
+    }
+
+    /// Open, and its `due` is a date or time already past.
+    pub fn is_overdue(&self, plan: &Plan, id: &str) -> bool {
+        matches!(self.status(id), Status::Todo | Status::Spike | Status::InProgress | Status::Paused)
+            && plan.tasks.get(id).and_then(|t| t.due.as_deref()).and_then(clock::parse).map(|w| self.now.past(&w)).unwrap_or(false)
+    }
+
+    /// An ongoing task is never ready: it has no end of its own.
     pub fn is_ready(&self, plan: &Plan, id: &str) -> bool {
         !plan.is_parent(id)
+            && !plan.tasks.get(id).map(|t| t.ongoing).unwrap_or(false)
             && matches!(self.status(id), Status::Todo | Status::Spike | Status::Paused)
             && self.blocks(plan, id).is_empty()
+    }
+
+    /// Whether an ongoing task is closed: its own entry is complete, which
+    /// only `close` writes for one.
+    pub fn is_closed(&self, plan: &Plan, leaf: &HashMap<TaskId, Status>, id: &str) -> bool {
+        plan.tasks.get(id).map(|t| t.ongoing).unwrap_or(false) && leaf.get(id) == Some(&Status::Complete)
+    }
+
+    /// What is open under a task (not the task itself): every open leaf,
+    /// and every open ongoing task, since one of those is open in its own
+    /// right. A finite parent is open only through its leaves.
+    pub fn open_under(&self, plan: &Plan, id: &str) -> Vec<TaskId> {
+        let mut v: Vec<TaskId> = plan
+            .subtree(id)
+            .into_iter()
+            .filter(|d| d != id)
+            .filter(|d| !matches!(self.status(d), Status::Complete | Status::Dropped))
+            .filter(|d| !plan.is_parent(d) || plan.tasks[d].ongoing)
+            .collect();
+        v.sort_by_key(|t| plan.tasks[t].seq);
+        v
     }
 
     /// Leaves that can start now.
@@ -273,14 +332,38 @@ fn status_of_uncached(plan: &Plan, leaf: &HashMap<TaskId, Status>, id: &str, mem
         }
     }
     let kids = plan.children(id);
-    if kids.is_empty() {
+    let ongoing = plan.tasks.get(id).map(|t| t.ongoing).unwrap_or(false);
+    if kids.is_empty() && !ongoing {
         return leaf.get(id).copied().unwrap_or(Status::Todo);
     }
     let ks: Vec<Status> = kids.iter().map(|k| status_of(plan, leaf, &k.id, memo)).collect();
     let live: Vec<Status> = ks.iter().copied().filter(|s| *s != Status::Dropped).collect();
+    if ongoing {
+        // Closed is the task's own entry being complete, which only
+        // `close` writes for an ongoing task; a start or pause a leaf had
+        // before it was declared ongoing is ignored.
+        let closed = leaf.get(id) == Some(&Status::Complete);
+        if live.is_empty() {
+            return if closed { Status::Complete } else { Status::Todo };
+        }
+        return match (finite(&live), closed) {
+            (Status::Complete, true) => Status::Complete,
+            // Running, with nothing open under it.
+            (Status::Complete, false) => Status::InProgress,
+            // Closed, yet something under it is open (scope gained after
+            // the close, as a merge can do): it is open again.
+            (_, true) => Status::InProgress,
+            (st, false) => st,
+        };
+    }
     if live.is_empty() {
         return Status::Dropped;
     }
+    finite(&live)
+}
+
+/// A finite parent's status from its live children.
+fn finite(live: &[Status]) -> Status {
     if live.iter().all(|s| *s == Status::Complete) {
         return Status::Complete;
     }

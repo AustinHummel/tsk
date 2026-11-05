@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Edited",
+  "parent": "d17a35223bf8c57513cf5df54feecaa2ceca8515c8291a49bcd5834ec60260e9",
+  "snapshot": "6071b383d07e033a1c7f0ae1afb677747e96ed0751bba6e27579257277eb59da",
+  "time": "2026-11-05T20:51:18Z",
+  "author": "fable implementer-0.6.0 2026-11-05",
+  "message": "edit 9.8.2 (appended to body)",
+  "subjects": [
+    "t90"
+  ],
+  "forced": false
+}

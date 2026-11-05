@@ -1,0 +1,17 @@
+req
+{
+  "id": "r39",
+  "from": {
+    "kind": "task",
+    "id": "t92"
+  },
+  "on": "t91",
+  "reason": "the tag runs the workflow",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-05T20:26:36Z",
+  "from_item": [
+    "release",
+    "assets"
+  ]
+}

@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Started",
+  "parent": "094a711c25d66e7fbfe1f8785b8e89ab7002f06e3d7fe4b5db46ded73c3cbd55",
+  "snapshot": "066fb6c544ce89e33acb587ecca3771886bc241d719dd3cd152ef1f999cb7ed7",
+  "time": "2026-11-05T20:51:18Z",
+  "author": "fable implementer-0.6.0 2026-11-05",
+  "message": "start 9.6",
+  "subjects": [
+    "t86"
+  ],
+  "forced": false
+}

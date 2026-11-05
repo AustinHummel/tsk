@@ -145,3 +145,26 @@
 2026-11-04T22:22:31Z  154d45b804  started          start 8.11.4  [8.11.4]  -- Claude (0.5 build)
 2026-11-04T22:22:31Z  85b2c6f461  completed        complete 8.11.4  [8.11.4]  -- Claude (0.5 build)
 2026-11-04T22:22:31Z  955e8ae5da  completed        complete 8.11.1  [8.11.1]  -- Claude (0.5 build)
+2026-11-05T20:26:36Z  d5e291b3ac  created          add 0.6.0: placement, ongoing scopes and dated work  [9]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:26:36Z  941630827e  broken-down      breakdown 9 into 8 children  [9 9.1 9.2 9.3 9.4 9.5 9.6 9.7 9.8]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:26:36Z  0dd3dbae97  applied          apply release to 9.8  [9.8 9.8.1 9.8.2 9.8.3 9.8.4 9.8.5]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:26:36Z  22f3837260  started          start 9.1  [9.1]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:17Z  03cecb6736  completed        complete 9.1  [9.1]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:17Z  118eae9bb0  started          start 9.2  [9.2]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:17Z  7dcd6a15b0  completed        complete 9.2  [9.2]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:17Z  e78f4db628  started          start 9.3  [9.3]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:17Z  84216ec1b8  completed        complete 9.3  [9.3]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:17Z  709005803c  started          start 9.4  [9.4]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  272c4c7f98  completed        complete 9.4  [9.4]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  1b337b172c  started          start 9.5  [9.5]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  094a711c25  completed        complete 9.5  [9.5]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  e4e47b8116  started          start 9.6  [9.6]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  d0c2167ae5  completed        complete 9.6  [9.6]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  f291dc4de1  started          start 9.7  [9.7]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  7eca7fefc0  completed        complete 9.7  [9.7]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  da38d01652  started          start 9.8.1  [9.8.1]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  95b3da9075  completed        complete 9.8.1  [9.8.1]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  89ebed13e5  started          start 9.8.5  [9.8.5]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  33d6b5f106  completed        complete 9.8.5  [9.8.5]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  d17a35223b  started          start 9.8.2  [9.8.2]  -- fable implementer-0.6.0 2026-11-05
+2026-11-05T20:51:18Z  94141f13a6  edited           edit 9.8.2 (appended to body)  [9.8.2]  -- fable implementer-0.6.0 2026-11-05

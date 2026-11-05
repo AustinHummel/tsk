@@ -1,0 +1,9 @@
+task
+{
+  "id": "t81",
+  "title": "fit on amend, adopt and edit; --core replaces the (core) placeholder",
+  "parent": "t80",
+  "seq": 81,
+  "body": "Model field `fit`; `amend`/`adopt` take `--fit` (required) and `--narrative` replaces; refusals for complete, dropped or closed parents and duplicate fits; `--core \"<title>\"` and `--core-body` name the piece a leaf parent keeps; `edit --fit`; the admits line.",
+  "types": []
+}

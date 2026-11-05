@@ -88,22 +88,57 @@ fn leaf_counts(c: &Ctx, id: &str, filters: &[(String, Option<String>)]) -> Count
     k
 }
 
-fn tags_of(c: &Ctx, id: &str) -> Vec<&'static str> {
-    let mut tags = Vec::new();
+fn tags_of(c: &Ctx, id: &str) -> Vec<String> {
+    let mut tags: Vec<String> = Vec::new();
     if c.derived.is_ready(&c.plan, id) {
-        tags.push("ready");
+        tags.push("ready".into());
     }
     if c.derived.in_loop.contains_key(id) {
-        tags.push("loop");
+        tags.push("loop".into());
     }
     if c.derived.is_tentative(&c.plan, id) {
-        tags.push("tentative");
+        tags.push("tentative".into());
+    }
+    if c.plan.tasks.get(id).map(|t| t.ongoing).unwrap_or(false) {
+        tags.push("ongoing".into());
+    }
+    if c.derived.is_overdue(&c.plan, id) {
+        tags.push("overdue".into());
+    }
+    // The gating date, own or inherited; only on leaves, since a parent is
+    // never ready anyway.
+    if !c.plan.is_parent(id) && matches!(c.derived.status(id), Status::Todo | Status::Spike | Status::Paused) {
+        if let Some((_, d)) = c.derived.not_before(&c.plan, id) {
+            tags.push(format!("not before {}", d));
+        }
     }
     tags
 }
 
+/// The one line `--scope` prints under a task: its fit, else the first
+/// non-empty line of its narrative (a parent) or body (a leaf), cut short.
+fn scope_line(c: &Ctx, id: &str) -> Option<String> {
+    let t = &c.plan.tasks[id];
+    let text = t
+        .fit
+        .as_deref()
+        .filter(|f| !f.trim().is_empty())
+        .or_else(|| if c.plan.is_parent(id) || t.ongoing { t.narrative.as_deref() } else { None })
+        .unwrap_or(&t.body);
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let cut: String = line.chars().take(100).collect();
+    Some(if cut.len() < line.len() { format!("{}...", cut.trim_end()) } else { cut })
+}
+
 pub(crate) fn block_text(c: &Ctx, b: &Block) -> String {
     match b {
+        Block::NotBefore(t, d) => {
+            if c.plan.is_parent(t) || c.plan.tasks.get(t).map(|x| x.ongoing).unwrap_or(false) {
+                format!("not before {} (after, on {})", d, c.plan.number_of(t))
+            } else {
+                format!("not before {}", d)
+            }
+        }
         Block::Loop(i) => {
             let lp = &c.derived.loops[*i];
             format!("in loop #{} with {}", i + 1, lp.tasks.iter().map(|t| c.plan.number_of(t)).collect::<Vec<_>>().join(", "))
@@ -161,8 +196,11 @@ pub fn show(task: String, json: bool) -> Result<()> {
             "status": st.name(),
             "ready": c.derived.is_ready(&c.plan, &id),
             "tentative": c.derived.is_tentative(&c.plan, &id),
+            "closed": c.derived.is_closed(&c.plan, &c.leaf, &id),
+            "overdue": c.derived.is_overdue(&c.plan, &id),
+            "not_before": c.derived.not_before(&c.plan, &id).map(|(t, d)| json!({"on": t, "after": d})),
             "path": c.plan.ancestors_and_self(&id).iter().map(|a| a.id.clone()).collect::<Vec<_>>(),
-            "children": c.plan.children(&id).iter().map(|k| json!({"id": k.id, "number": c.plan.number_of(&k.id), "title": k.title, "status": c.derived.status(&k.id).name()})).collect::<Vec<_>>(),
+            "children": c.plan.children(&id).iter().map(|k| json!({"id": k.id, "number": c.plan.number_of(&k.id), "title": k.title, "status": c.derived.status(&k.id).name(), "fit": k.fit, "ongoing": k.ongoing})).collect::<Vec<_>>(),
             "required_by": c.plan.reqs_on(&id),
             "requires": c.plan.reqs_from(&id),
             "blocks": blocks.iter().map(|b| block_text(&c, b)).collect::<Vec<_>>(),
@@ -187,14 +225,20 @@ pub fn show(task: String, json: bool) -> Result<()> {
     if t.core_of.is_some() {
         facts.push("core".to_string());
     }
+    if t.ongoing {
+        facts.push(if c.derived.is_closed(&c.plan, &c.leaf, &id) { "ongoing, closed".to_string() } else { "ongoing".to_string() });
+    }
     if c.derived.is_tentative(&c.plan, &id) {
         facts.push("tentative".to_string());
     }
     if let Some(p) = &t.priority {
         facts.push(format!("priority {}", p));
     }
+    if let Some(a) = &t.after {
+        facts.push(format!("after {}", a));
+    }
     if let Some(d) = &t.due {
-        facts.push(format!("due {}", d));
+        facts.push(format!("due {}{}", d, if c.derived.is_overdue(&c.plan, &id) { " (overdue)" } else { "" }));
     }
     println!("    {}", facts.join(" · "));
     if !t.fields.is_empty() {
@@ -207,7 +251,10 @@ pub fn show(task: String, json: bool) -> Result<()> {
     if path.len() > 1 {
         println!("\n{}", hdr("path:"));
         for a in &path[..path.len() - 1] {
-            println!("  {} {}", c.plan.number_of(&a.id), a.title);
+            println!("  {} {}{}", c.plan.number_of(&a.id), a.title, if a.ongoing { " (ongoing)" } else { "" });
+        }
+        if let Some(f) = &t.fit {
+            println!("  {} {}", hdr("fits:"), f);
         }
     }
     if !t.body.is_empty() {
@@ -252,15 +299,18 @@ pub fn show(task: String, json: bool) -> Result<()> {
         }
     }
     let kids = c.plan.children(&id);
-    if !kids.is_empty() {
-        println!("\n{}", hdr("breakdown:"));
+    if !kids.is_empty() || (t.ongoing && t.narrative.is_some()) {
+        println!("\n{}", hdr(if t.ongoing { "admits:" } else { "breakdown:" }));
         if let Some(n) = &t.narrative {
             for l in n.lines() {
                 println!("  {}", l);
             }
         }
         for k in kids {
-            println!("  {} {} {}", color::glyph(c.derived.status(&k.id)), c.plan.number_of(&k.id), k.title);
+            println!("  {} {}{}", color::glyph(c.derived.status(&k.id)), clabel(&c, &k.id), if k.ongoing { "  <ongoing>" } else { "" });
+            if let Some(f) = &k.fit {
+                println!("      {}", f);
+            }
         }
     } else if !blocks.is_empty() && st != Status::Complete && st != Status::Dropped {
         println!("\n{}", hdr("blocked:"));
@@ -330,14 +380,15 @@ pub fn context(task: String, full: bool, json: bool) -> Result<()> {
                 "id": a.id, "number": c.plan.number_of(&a.id), "title": a.title,
                 "required_by": person_reqs(&c.plan, &a.id),
                 "narrative": a.narrative, "body": a.body, "docs": a.docs, "fields": a.fields,
+                "fit": a.fit, "ongoing": a.ongoing,
                 "status": c.derived.status(&a.id).name(),
             })).collect::<Vec<_>>(),
             "requires": c.plan.reqs_from(&id),
             "required_by": c.plan.reqs_on(&id),
             "inherited": inherited.iter().map(|(a, r)| json!({"via": a.id, "req": r})).collect::<Vec<_>>(),
             "inherited_required_by": inherited_on.iter().map(|(a, r)| json!({"via": a.id, "req": r})).collect::<Vec<_>>(),
-            "siblings": siblings.iter().map(|s| json!({"id": s.id, "number": c.plan.number_of(&s.id), "title": s.title, "status": c.derived.status(&s.id).name()})).collect::<Vec<_>>(),
-            "children": kids.iter().map(|k| json!({"id": k.id, "number": c.plan.number_of(&k.id), "title": k.title, "status": c.derived.status(&k.id).name()})).collect::<Vec<_>>(),
+            "siblings": siblings.iter().map(|s| json!({"id": s.id, "number": c.plan.number_of(&s.id), "title": s.title, "status": c.derived.status(&s.id).name(), "fit": s.fit})).collect::<Vec<_>>(),
+            "children": kids.iter().map(|k| json!({"id": k.id, "number": c.plan.number_of(&k.id), "title": k.title, "status": c.derived.status(&k.id).name(), "fit": k.fit})).collect::<Vec<_>>(),
         });
         println!("{}", serde_json::to_string_pretty(&v)?);
         return Ok(());
@@ -350,12 +401,21 @@ pub fn context(task: String, full: bool, json: bool) -> Result<()> {
     if c.derived.is_tentative(&c.plan, &id) {
         facts.push(color::yellow("tentative"));
     }
+    if t.ongoing {
+        facts.push(color::magenta("ongoing"));
+    }
+    if let Some(a) = &t.after {
+        facts.push(format!("after {}", a));
+    }
+    if let Some(d) = &t.due {
+        facts.push(format!("due {}", d));
+    }
     println!("    {}", facts.join(" · "));
     println!("\n{}", hdr("chain of intent, root first:"));
     for (depth, a) in chain.iter().enumerate() {
         let pad = "  ".repeat(depth + 1);
         let here = if a.id == id { "  <- this task" } else { "" };
-        println!("{}{} {} {}{}", pad, color::glyph(c.derived.status(&a.id)), c.plan.number_of(&a.id), a.title, here);
+        println!("{}{} {} {}{}{}", pad, color::glyph(c.derived.status(&a.id)), c.plan.number_of(&a.id), a.title, if a.ongoing { " (ongoing)" } else { "" }, here);
         for p in person_reqs(&c.plan, &a.id) {
             println!("{}  required by {}", pad, p);
         }
@@ -372,21 +432,30 @@ pub fn context(task: String, full: bool, json: bool) -> Result<()> {
                 }
             }
             if let Some(n) = &a.narrative {
-                println!("{}  narrative:", pad);
+                println!("{}  {}", pad, if a.ongoing { "admits:" } else { "narrative:" });
                 for l in n.lines().filter(|l| !l.trim().is_empty()) {
                     println!("{}    {}", pad, l);
                 }
             }
+            // How the next level down sits in this one.
+            if let Some(next) = chain.get(depth + 1) {
+                if let Some(f) = &next.fit {
+                    println!("{}  fits {}: {}", pad, c.plan.number_of(&a.id), f);
+                }
+            }
         }
     }
-    if !t.body.is_empty() {
+    if !t.body.is_empty() || t.fit.is_some() {
         println!("\n{}", hdr("card:"));
+        if let Some(f) = &t.fit {
+            println!("  fits: {}", f);
+        }
         for l in t.body.lines() {
             println!("  {}", l);
         }
     }
     if let Some(n) = &t.narrative {
-        println!("\n{}", hdr("narrative:"));
+        println!("\n{}", hdr(if t.ongoing { "admits:" } else { "narrative:" }));
         for l in n.lines() {
             println!("  {}", l);
         }
@@ -424,12 +493,18 @@ pub fn context(task: String, full: bool, json: bool) -> Result<()> {
         println!("\n{}", hdr("siblings:"));
         for s in siblings {
             println!("  {} {} {}", color::glyph(c.derived.status(&s.id)), c.plan.number_of(&s.id), s.title);
+            if let Some(f) = &s.fit {
+                println!("      {}", f);
+            }
         }
     }
     if !kids.is_empty() {
         println!("\n{}", hdr("children:"));
         for k in kids {
             println!("  {} {} {}", color::glyph(c.derived.status(&k.id)), c.plan.number_of(&k.id), k.title);
+            if let Some(f) = &k.fit {
+                println!("      {}", f);
+            }
         }
     }
     Ok(())
@@ -437,9 +512,10 @@ pub fn context(task: String, full: bool, json: bool) -> Result<()> {
 
 /// One task's line in `plan` and `ls`: glyph, number, id, title, then a
 /// count of the leaves under it when one is wanted, then the tags.
-fn outline_line(c: &Ctx, id: &str, st: Status, counts: Option<(&Counts, bool)>, tags: &[&str]) -> String {
+fn outline_line(c: &Ctx, id: &str, st: Status, counts: Option<(&Counts, bool)>, tags: &[String]) -> String {
     let marker = counts.map(|(k, finished_only)| k.text(finished_only)).unwrap_or_default();
-    format!("{} {}{}{}", color::glyph(st), clabel(c, id), marker, color::tags(tags))
+    let refs: Vec<&str> = tags.iter().map(String::as_str).collect();
+    format!("{} {}{}{}", color::glyph(st), clabel(c, id), marker, color::tags(&refs))
 }
 
 /// What else attaches to a task that has no children: the open tasks that
@@ -478,7 +554,7 @@ fn childless_hints(c: &Ctx, id: &str) -> Vec<String> {
     hints
 }
 
-pub fn plan(task: Option<String>, all: bool, filters: Vec<String>, depth: Option<usize>, json: bool) -> Result<()> {
+pub fn plan(task: Option<String>, all: bool, filters: Vec<String>, depth: Option<usize>, scope: bool, json: bool) -> Result<()> {
     let c = open()?;
     let filters = parse_filters(&filters);
     let roots: Vec<TaskId> = match &task {
@@ -486,7 +562,7 @@ pub fn plan(task: Option<String>, all: bool, filters: Vec<String>, depth: Option
         None => c.plan.roots().iter().map(|t| t.id.clone()).collect(),
     };
     #[allow(clippy::too_many_arguments)]
-    fn walk(c: &Ctx, id: &TaskId, depth: usize, all: bool, filters: &[(String, Option<String>)], max: Option<usize>, out: &mut Vec<serde_json::Value>, text: &mut String) {
+    fn walk(c: &Ctx, id: &TaskId, depth: usize, all: bool, filters: &[(String, Option<String>)], max: Option<usize>, scope: bool, out: &mut Vec<serde_json::Value>, text: &mut String) {
         let st = c.derived.status(id);
         if !all && matches!(st, Status::Complete | Status::Dropped) {
             return;
@@ -511,18 +587,25 @@ pub fn plan(task: Option<String>, all: bool, filters: Vec<String>, depth: Option
         if let Some(k) = &counts {
             row["counts"] = k.json();
         }
+        if scope {
+            let line = scope_line(c, id);
+            if let Some(l) = &line {
+                text.push_str(&format!("{}    {}\n", "    ".repeat(depth), color::dim(l)));
+            }
+            row["scope"] = json!(line);
+        }
         out.push(row);
         if cut {
             return;
         }
         for k in kids {
-            walk(c, &k.id, depth + 1, all, filters, max, out, text);
+            walk(c, &k.id, depth + 1, all, filters, max, scope, out, text);
         }
     }
     let mut out = Vec::new();
     let mut text = String::new();
     for r in &roots {
-        walk(&c, r, 0, all, &filters, depth, &mut out, &mut text);
+        walk(&c, r, 0, all, &filters, depth, scope, &mut out, &mut text);
     }
     if let (Some(_), 1) = (&task, out.len()) {
         let id = &roots[0];
@@ -548,7 +631,7 @@ pub fn plan(task: Option<String>, all: bool, filters: Vec<String>, depth: Option
 
 /// One level, flat: the roots, or a task's children, each with the count of
 /// the leaves under it.
-pub fn ls(task: Option<String>, all: bool, filters: Vec<String>, json: bool) -> Result<()> {
+pub fn ls(task: Option<String>, all: bool, filters: Vec<String>, scope: bool, json: bool) -> Result<()> {
     let c = open()?;
     let filters = parse_filters(&filters);
     let (items, under): (Vec<TaskId>, Option<TaskId>) = match task {
@@ -576,6 +659,13 @@ pub fn ls(task: Option<String>, all: bool, filters: Vec<String>, json: bool) -> 
         if let Some(k) = &counts {
             row["counts"] = k.json();
         }
+        if scope {
+            let line = scope_line(&c, id);
+            if let Some(l) = &line {
+                text.push_str(&format!("    {}\n", color::dim(l)));
+            }
+            row["scope"] = json!(line);
+        }
         out.push(row);
     }
     if json {
@@ -595,14 +685,57 @@ pub fn ls(task: Option<String>, all: bool, filters: Vec<String>, json: bool) -> 
     Ok(())
 }
 
-pub fn ready(blocked: bool, filters: Vec<String>, json: bool) -> Result<()> {
+/// The direct successors of a task and of its ancestors: what it holds up.
+fn holds_up(c: &Ctx, id: &str) -> Vec<TaskId> {
+    let mut v: Vec<TaskId> = Vec::new();
+    for a in c.plan.ancestors_and_self(id) {
+        for r in c.plan.reqs_on(&a.id) {
+            if let (true, Requirer::Task(f)) = (r.blocking, &r.from) {
+                if !v.contains(f) && !matches!(c.derived.status(f), Status::Complete | Status::Dropped) {
+                    v.push(f.clone());
+                }
+            }
+        }
+    }
+    v.sort_by_key(|t| c.plan.tasks[t].seq);
+    v
+}
+
+pub fn ready(blocked: bool, filters: Vec<String>, holds: bool, json: bool) -> Result<()> {
     let c = open()?;
     let filters = parse_filters(&filters);
     let ready: Vec<TaskId> = c.derived.ready(&c.plan).into_iter().filter(|t| c.plan.matches(t, &filters)).collect();
+    // Open leaves a date is holding back, soonest first: the calendar an
+    // orient must see.
+    let mut not_before: Vec<(TaskId, TaskId, String)> = c
+        .plan
+        .tasks
+        .values()
+        .filter(|t| !c.plan.is_parent(&t.id) && !t.ongoing && matches!(c.derived.status(&t.id), Status::Todo | Status::Spike | Status::Paused) && c.plan.matches(&t.id, &filters))
+        .filter_map(|t| c.derived.not_before(&c.plan, &t.id).map(|(on, d)| (t.id.clone(), on, d)))
+        .collect();
+    not_before.sort_by(|a, b| a.2.cmp(&b.2).then_with(|| c.plan.tasks[&a.0].seq.cmp(&c.plan.tasks[&b.0].seq)));
+    // Ongoing tasks with something finished under them and nothing open:
+    // the next occurrence may be missing.
+    let mut empty_ongoing: Vec<TaskId> = c
+        .plan
+        .tasks
+        .values()
+        .filter(|t| t.ongoing && !matches!(c.derived.status(&t.id), Status::Complete | Status::Dropped) && c.plan.matches(&t.id, &filters))
+        .filter(|t| c.plan.children(&t.id).iter().any(|k| c.derived.status(&k.id) == Status::Complete) && c.derived.open_under(&c.plan, &t.id).is_empty())
+        .map(|t| t.id.clone())
+        .collect();
+    empty_ongoing.sort_by_key(|t| c.plan.tasks[t].seq);
+    let due_text = |t: &TaskId| -> String {
+        match &c.plan.tasks[t].due {
+            Some(d) => format!("  due {}{}", d, if c.derived.is_overdue(&c.plan, t) { color::red(" (overdue)") } else { String::new() }),
+            None => String::new(),
+        }
+    };
     // Leaves in progress, and who started each (the latest `started` event
     // naming it), so a session sees what it has on its hands.
     let me = c.store.author();
-    let mut in_progress: Vec<TaskId> = c.plan.tasks.values().filter(|t| !c.plan.is_parent(&t.id) && c.derived.status(&t.id) == Status::InProgress && c.plan.matches(&t.id, &filters)).map(|t| t.id.clone()).collect();
+    let mut in_progress: Vec<TaskId> = c.plan.tasks.values().filter(|t| !c.plan.is_parent(&t.id) && !t.ongoing && c.derived.status(&t.id) == Status::InProgress && c.plan.matches(&t.id, &filters)).map(|t| t.id.clone()).collect();
     in_progress.sort_by_key(|t| c.plan.tasks[t].seq);
     let mut started_by: HashMap<TaskId, String> = HashMap::new();
     if !in_progress.is_empty() {
@@ -623,11 +756,12 @@ pub fn ready(blocked: bool, filters: Vec<String>, json: bool) -> Result<()> {
     let mine: Vec<&TaskId> = in_progress.iter().filter(|t| started_by.get(*t) == Some(&me)).collect();
     let mut blocked_list: Vec<(TaskId, Vec<Block>)> = Vec::new();
     if blocked || json {
-        let mut leaves: Vec<&Task> = c.plan.tasks.values().filter(|t| !c.plan.is_parent(&t.id)).collect();
+        let mut leaves: Vec<&Task> = c.plan.tasks.values().filter(|t| !c.plan.is_parent(&t.id) && !t.ongoing).collect();
         leaves.sort_by_key(|t| t.seq);
         for t in leaves {
             let st = c.derived.status(&t.id);
-            if matches!(st, Status::Todo | Status::Spike | Status::Paused) && !c.derived.is_ready(&c.plan, &t.id) && c.plan.matches(&t.id, &filters) {
+            // What a date alone holds back has its own section.
+            if matches!(st, Status::Todo | Status::Spike | Status::Paused) && !c.derived.is_ready(&c.plan, &t.id) && c.plan.matches(&t.id, &filters) && !not_before.iter().any(|(id, _, _)| *id == t.id) {
                 blocked_list.push((t.id.clone(), c.derived.blocks(&c.plan, &t.id)));
             }
         }
@@ -636,7 +770,15 @@ pub fn ready(blocked: bool, filters: Vec<String>, json: bool) -> Result<()> {
         let v = json!({
             "author": me,
             "in_progress": in_progress.iter().map(|t| json!({"id": t, "number": c.plan.number_of(t), "title": c.plan.tasks[t].title, "author": started_by.get(t), "mine": started_by.get(t) == Some(&me), "fields": c.plan.tasks[t].fields})).collect::<Vec<_>>(),
-            "ready": ready.iter().map(|t| json!({"id": t, "number": c.plan.number_of(t), "title": c.plan.tasks[t].title, "status": c.derived.status(t).name(), "fields": c.plan.tasks[t].fields})).collect::<Vec<_>>(),
+            "ready": ready.iter().map(|t| {
+                let mut row = json!({"id": t, "number": c.plan.number_of(t), "title": c.plan.tasks[t].title, "status": c.derived.status(t).name(), "fields": c.plan.tasks[t].fields, "due": c.plan.tasks[t].due, "overdue": c.derived.is_overdue(&c.plan, t)});
+                if holds {
+                    row["holds"] = json!(holds_up(&c, t));
+                }
+                row
+            }).collect::<Vec<_>>(),
+            "not_before": not_before.iter().map(|(t, on, d)| json!({"id": t, "number": c.plan.number_of(t), "title": c.plan.tasks[t].title, "after": d, "on": on, "due": c.plan.tasks[t].due})).collect::<Vec<_>>(),
+            "empty_ongoing": empty_ongoing,
             "blocked": blocked_list.iter().map(|(t, bs)| json!({"id": t, "number": c.plan.number_of(t), "title": c.plan.tasks[t].title, "blocks": bs.iter().map(|b| block_text(&c, b)).collect::<Vec<_>>()})).collect::<Vec<_>>(),
         });
         println!("{}", serde_json::to_string_pretty(&v)?);
@@ -645,7 +787,7 @@ pub fn ready(blocked: bool, filters: Vec<String>, json: bool) -> Result<()> {
     if !mine.is_empty() {
         println!("in progress (you):");
         for t in &mine {
-            println!("  {} {}", color::glyph(Status::InProgress), clabel(&c, t));
+            println!("  {} {}{}", color::glyph(Status::InProgress), clabel(&c, t), due_text(t));
         }
     }
     if ready.is_empty() {
@@ -653,7 +795,23 @@ pub fn ready(blocked: bool, filters: Vec<String>, json: bool) -> Result<()> {
     } else {
         println!("ready:");
         for t in &ready {
-            println!("  {} {}", color::glyph(c.derived.status(t)), clabel(&c, t));
+            println!("  {} {}{}", color::glyph(c.derived.status(t)), clabel(&c, t), due_text(t));
+            if holds {
+                let h = holds_up(&c, t);
+                if h.is_empty() {
+                    println!("      holds up nothing");
+                } else {
+                    println!("      holds up: {}", h.iter().map(|x| c.plan.number_of(x)).collect::<Vec<_>>().join(", "));
+                }
+            }
+        }
+    }
+    if !not_before.is_empty() {
+        println!("not before:");
+        for (t, on, d) in &not_before {
+            let via = if *on == *t { String::new() } else { format!(" (after, on {})", c.plan.number_of(on)) };
+            let due = c.plan.tasks[t].due.as_ref().map(|x| format!(", due {}", x)).unwrap_or_default();
+            println!("  {} {}  not before {}{}{}", color::glyph(c.derived.status(t)), clabel(&c, t), d, via, due);
         }
     }
     if blocked {
@@ -668,6 +826,9 @@ pub fn ready(blocked: bool, filters: Vec<String>, json: bool) -> Result<()> {
                 }
             }
         }
+    }
+    if !empty_ongoing.is_empty() {
+        println!("ongoing, nothing open under it: {}", empty_ongoing.iter().map(|t| clabel(&c, t)).collect::<Vec<_>>().join("; "));
     }
     Ok(())
 }
@@ -728,11 +889,47 @@ pub fn stale(json: bool) -> Result<()> {
         }
     }
     rows.sort();
+    // Live ongoing tasks: how many piles exist and how fast each grows (the
+    // date of its newest scope-adding event).
+    let mut ongoing: Vec<(TaskId, usize, String)> = Vec::new();
+    let mut piles: Vec<&Task> = c.plan.tasks.values().filter(|t| t.ongoing && !matches!(c.derived.status(&t.id), Status::Complete | Status::Dropped)).collect();
+    piles.sort_by_key(|t| t.seq);
+    for t in piles {
+        let last = c
+            .history()
+            .iter()
+            .find(|(_, e)| matches!(e.kind, EventKind::BrokenDown | EventKind::Amended | EventKind::Adopted) && e.subjects.first() == Some(&t.id))
+            .map(|(_, e)| e.time[..10].to_string())
+            .unwrap_or_else(|| "never".to_string());
+        ongoing.push((t.id.clone(), c.derived.open_under(&c.plan, &t.id).len(), last));
+    }
+    // Pieces a split named but whose card was not written: a core child
+    // (no type on the host) with the host's own body and the generated fit.
+    let mut unscoped: Vec<TaskId> = c
+        .plan
+        .tasks
+        .values()
+        .filter(|t| !matches!(c.derived.status(&t.id), Status::Complete | Status::Dropped))
+        .filter(|t| match (&t.core_of, c.plan.tasks.get(t.core_of.as_deref().unwrap_or(""))) {
+            (Some(_), Some(host)) => host.types.is_empty() && (t.body == host.body) && (t.fit.as_deref().map(|f| f.starts_with("what ") && f.contains(" was before ")).unwrap_or(false) || t.title.ends_with("(core)")),
+            _ => false,
+        })
+        .map(|t| t.id.clone())
+        .collect();
+    unscoped.sort_by_key(|t| c.plan.tasks[t].seq);
     if json {
-        println!("{}", serde_json::to_string_pretty(&json!({"required": rows.iter().map(|(d, p, r, t)| json!({"date": d, "person": p, "reason": r, "task": t})).collect::<Vec<_>>(), "unowned_roots": unowned}))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "required": rows.iter().map(|(d, p, r, t)| json!({"date": d, "person": p, "reason": r, "task": t})).collect::<Vec<_>>(),
+                "unowned_roots": unowned,
+                "ongoing": ongoing.iter().map(|(t, n, d)| json!({"task": t, "open_under": n, "last_scope_added": d})).collect::<Vec<_>>(),
+                "unscoped_pieces": unscoped,
+            }))?
+        );
         return Ok(());
     }
-    if rows.is_empty() && unowned.is_empty() {
+    if rows.is_empty() && unowned.is_empty() && ongoing.is_empty() && unscoped.is_empty() {
         println!("nothing open");
         return Ok(());
     }
@@ -746,6 +943,18 @@ pub fn stale(json: bool) -> Result<()> {
         println!("roots nobody has asked for:");
         for t in unowned {
             println!("  {}", c.plan.label(&t));
+        }
+    }
+    if !ongoing.is_empty() {
+        println!("ongoing:");
+        for (t, n, d) in &ongoing {
+            println!("  {}  {} open under it, last scope added {}", c.plan.label(t), n, d);
+        }
+    }
+    if !unscoped.is_empty() {
+        println!("pieces still carrying the parent's card:");
+        for t in &unscoped {
+            println!("  {}", c.plan.label(t));
         }
     }
     Ok(())
@@ -890,9 +1099,13 @@ fn diff_task(c: &Ctx, id: &str, old_h: &Hash, new_h: &Hash) -> Result<()> {
         match t {
             None => String::from("(absent)\n"),
             Some(t) => format!(
-                "title: {}\nparent: {}\ntypes: {}\ndocs: {}\nfields: {}\nnarrative: {}\n---\n{}\n",
+                "title: {}\nparent: {}\nfit: {}\nongoing: {}\nafter: {}\ndue: {}\ntypes: {}\ndocs: {}\nfields: {}\nnarrative: {}\n---\n{}\n",
                 t.title,
                 t.parent.clone().unwrap_or_default(),
+                t.fit.clone().unwrap_or_default(),
+                t.ongoing,
+                t.after.clone().unwrap_or_default(),
+                t.due.clone().unwrap_or_default(),
                 t.types.join(","),
                 t.docs.join(", "),
                 fields_text(&t.fields),
@@ -914,7 +1127,7 @@ fn plan_at(store: &Store, h: &Hash) -> Result<(Plan, Derived)> {
     let _ = snap;
     let plan = store.load_plan(&ev.snapshot)?;
     let leaf = store.leaf_statuses_at(h)?;
-    let derived = Derived::compute(&plan, &leaf);
+    let derived = Derived::compute(&plan, &leaf, crate::clock::now()?);
     Ok((plan, derived))
 }
 
@@ -932,6 +1145,15 @@ fn task_changes(a: &Task, b: &Task) -> Vec<&'static str> {
     if a.narrative != b.narrative {
         v.push("narrative");
     }
+    if a.fit != b.fit {
+        v.push("fit");
+    }
+    if a.ongoing != b.ongoing {
+        v.push("ongoing");
+    }
+    if a.after != b.after || a.due != b.due {
+        v.push("dates");
+    }
     if a.types != b.types {
         v.push("types");
     }
@@ -941,8 +1163,8 @@ fn task_changes(a: &Task, b: &Task) -> Vec<&'static str> {
     if a.fields != b.fields {
         v.push("fields");
     }
-    if a.priority != b.priority || a.due != b.due {
-        v.push("priority/due");
+    if a.priority != b.priority {
+        v.push("priority");
     }
     v
 }

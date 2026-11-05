@@ -1,0 +1,9 @@
+task
+{
+  "id": "t87",
+  "title": "documents: README, PHILOSOPHY, agent-orgs, architecture, the skill, CLAUDE.md",
+  "parent": "t80",
+  "seq": 87,
+  "body": "Org-neutral: command table rows, the model and event lists, \"Ongoing scopes\" and \"Dates\", the format paragraph, PHILOSOPHY's \"Scopes that don't end\", the architecture doc and skill (the clock under boundaries), CLAUDE.md's version, counts and format history.",
+  "types": []
+}

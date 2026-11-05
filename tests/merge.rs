@@ -92,7 +92,7 @@ fn an_adoption_on_one_side_merges_with_adds_on_the_other() {
     copy_store(&a.dir, &b.dir);
     // Ours adopts: t5 takes position 6 from the counter without a task t6 existing.
     a.ok(&["add", "alice's step"]); // t5
-    a.ok(&["adopt", "1", "t5", "--narrative", "it belongs to Dana's work"]);
+    a.ok(&["adopt", "1", "t5", "--fit", "it belongs to Dana's work"]);
     assert!(a.ok(&["plan"]).contains("1.4 t5 alice's step"));
     // Theirs adds t5 and t6: both collide, one by id and one by position.
     b.ok(&["add", "bob's root"]); // t5
@@ -296,4 +296,36 @@ fn any_merge_can_be_undone_with_reset_and_the_reflog() {
     assert!(a.ok(&["reflog"]).lines().count() >= 4);
     assert!(!a.read(".tasks/.gitignore").is_empty() && a.read(".tasks/.gitignore").contains("reflog"), "the reflog is local");
     assert!(a.fails(&["reset", "0000"]).contains("no object"));
+}
+
+#[test]
+fn closed_and_reopened_replay_in_a_merge() {
+    let a = Proj::new("close-a");
+    a.ok(&["add", "Run", "--by", "A: b", "--ongoing", "what the business owes"]);
+    a.ok(&["amend", "1", "Piece", "--fit", "p"]);
+    a.ok(&["complete", "1.1"]);
+    let b = Proj::new("close-b");
+    copy_store(&a.dir, &b.dir);
+    a.ok(&["close", "1", "done"]);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    b.ok(&["amend", "1", "New", "--fit", "n"]);
+    bring_objects(&b.dir, &a.dir);
+    let out = a.ok(&["merge", &head(&b)]);
+    assert!(out.contains("1 t1 Run: closed on ours at") && out.contains("then gained 1.2 t3 New on theirs; it is open again"), "{}", out);
+    let plan = a.ok(&["plan"]);
+    assert!(plan.contains("[>] 1 t1 Run") && plan.contains("[ ] 1.2 t3 New"), "{}", plan);
+    assert!(a.ok(&["log", "-n", "4"]).contains("closed"), "the close is on the merged line");
+    // A close on one side against a reopen on the other is reported as status on both sides.
+    a.ok(&["complete", "1.2"]);
+    a.ok(&["close", "1", "done again"]);
+    let c = Proj::new("close-c");
+    copy_store(&a.dir, &c.dir);
+    a.ok(&["reopen", "1"]);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    c.ok(&["reopen", "1"]);
+    c.ok(&["close", "1", "shut"]);
+    bring_objects(&c.dir, &a.dir);
+    let out = a.ok(&["merge", &head(&c)]);
+    assert!(out.contains("status on both sides: 1 t1 Run: ours reopened at") && out.contains("then theirs reopened"), "{}", out);
+    assert!(a.ok(&["plan", "-a"]).contains("[x] 1 t1 Run"), "the later close stands");
 }

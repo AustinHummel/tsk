@@ -1,0 +1,9 @@
+task
+{
+  "id": "t84",
+  "title": "views: --scope, fits in show and context, ready's calendar sections and --holds, stale's new sections, diff and render",
+  "parent": "t80",
+  "seq": 84,
+  "body": "`plan`/`ls --scope`; `show`/`context` print fits and ongoing; `ready` gets `not before:`, the `ongoing, nothing open under it` footer and `--holds`; `stale` gets `ongoing:` and `pieces still carrying the parent's card:`; `diff` reports the fields; `render` front matter and page.",
+  "types": []
+}

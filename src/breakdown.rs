@@ -112,7 +112,10 @@ pub fn template(parent_label: &str, parent_body: &str, reqs: &[(String, String)]
     let mut s = String::new();
     s.push_str(&format!("# Breakdown of {}\n", parent_label));
     s.push_str("# Lines starting with `#` before the first directive are ignored.\n");
-    s.push_str("# One `= child: <title>` per child, its scope below it. Then `= narrative`.\n");
+    s.push_str("# One `= child: <title>` per child, its scope below it. Children cover the parent's\n");
+    s.push_str("# scope exactly, no overlap; the parent is complete when they are. Then `= narrative`:\n");
+    s.push_str("# how they fit together, the proof the cut is complete (for an ongoing task: what\n");
+    s.push_str("# belongs under it).\n");
     s.push_str("# Every requirement listed below must go to a child number or `all`.\n");
     if !parent_body.trim().is_empty() {
         s.push_str("#\n# Parent card:\n");

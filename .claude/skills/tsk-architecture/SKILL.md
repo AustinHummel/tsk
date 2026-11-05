@@ -50,7 +50,7 @@ happened; everything else is derived on read.**
 
 ## The map, at orientation altitude
 
-Twelve modules under `src/`; each has a `//!` header that is its own best
+Thirteen modules under `src/`; each has a `//!` header that is its own best
 summary. Detail, including the object and event model, is
 [docs/architecture.md](../../../docs/architecture.md).
 
@@ -60,7 +60,8 @@ summary. Detail, including the object and event model, is
 | Store | `store.rs` | `.tasks/` discovery, hashing and object I/O, HEAD (ours, pending, conflicted), lock and claim, reflog, log file, cache, config. | Knowledge of what a plan means. |
 | Plan | `plan.rs` | The in-memory plan loaded from a snapshot: tasks, reqs, types, the tree index, derived numbering, ref resolution (`t7`, `1.2.4`, exact title), field inheritance; `save` writes the tree. | Status. |
 | Derived | `state.rs` | Leaf statuses replayed from events (`apply_event`), the expanded dependency graph, loops, blocks, readiness, tentativeness. | Anything written to disk. |
-| Commit | `commit.rs` | `write_on`: snapshot → event → claim → HEAD → log line; the clock. | Deciding what to change. |
+| Commit | `commit.rs` | `write_on`: snapshot → event → claim → HEAD → log line; the UTC clock that stamps events. | Deciding what to change. |
+| Clock | `clock.rs` | The present as a `Moment` (from `TSK_NOW` or the system clock with the local offset, read once per command in `commands::load`), the stored forms of `after` and a dated `due` (a date; a local time with its UTC offset) and their comparison. | Deciding readiness (that is `state.rs`, which takes the `Moment`); anything a status depends on. |
 | Porcelain | `commands.rs` | Every command that writes (add, breakdown, link, set, start …), the `Ctx` (store + plan + loaded HEAD + derived), `open`/`open_rw`, plumbing (`cat-object`, `hash-object`, `ls-snapshot`, `rev-list`), config, reflog, reset. | Rendering, merging. |
 | Views | `views.rs` | Every read-only command: show, context, plan, ready, loops, stale, forced, log, diff. | Writes. |
 | Breakdown file | `breakdown.rs` | Parsing and templating the `= child:` / `= narrative` / `= req` form. | The breakdown's semantics (those are in `commands::breakdown`). |
@@ -69,8 +70,8 @@ summary. Detail, including the object and event model, is
 | Render | `render.rs` | `tasks/<id>.md` pages and the outline; backlinks. | Reading the store directly (it goes through `Ctx`). |
 | CLI | `main.rs` | The clap `Cmd` and `TypeCmd` enums, global flags (`--store`, `-C`, `--json`), the dispatch `match`. | Behaviour. |
 
-Hot spots by size: `commands.rs` (1,099 lines), `views.rs` (855),
-`store.rs` (760), `merge.rs` (683). Adding to them is normal; splitting
+Hot spots by size: `commands.rs` (1,585 lines), `views.rs` (1,317),
+`store.rs` (795), `merge.rs` (733). Adding to them is normal; splitting
 one is a task of its own, not a side effect.
 
 ## Extension points
@@ -88,9 +89,15 @@ one is a task of its own, not a side effect.
   `EventKind::Edited`, as in `commands::edit`; a new status transition is a new
   `EventKind` variant with its `name()` in `model.rs`, taught to
   `state::apply_event` (copy `commands::drop`, and the `transition`
-  helper for anything that takes a group); a change that adds or removes
-  requirements copies `commands::link` (refuses, notes new loops). Then
-  the README's command table (the release type's `readme` item).
+  helper for anything that takes a group; `close`/`reopen` are the
+  pattern for a transition that applies to one kind of task only); a
+  change that adds or removes requirements copies `commands::link`
+  (refuses, notes new loops); a change to a date copies `commands::when`
+  (normalized through `clock::normalize`, a `Set` event). A command that
+  adds scope under a task (`amend`, `adopt`) checks the parent with
+  `parent_takes` and splits a leaf with `split_leaf`; it never writes a
+  placeholder child. Then the README's command table (the release
+  type's `readme` item).
 - **A new view.** `Cmd` variant in `main.rs`; a `pub fn` in `views.rs`
   opening with `open()` (no lock), reading `c.plan` and `c.derived`, with
   a `--json` branch. Copy `views::ready` or `views::stale`.
@@ -120,8 +127,15 @@ one is a task of its own, not a side effect.
 - No command writes without `open_rw`; no view takes the lock.
 - The rendered `tasks/` pages are an output, never an input: nothing reads
   them back except `backlinks`, which greps for links to them.
+- Nothing in `state.rs` reads the clock: `Derived::compute` takes the
+  `Moment` its caller passes, and a date touches readiness and blocks
+  only, never a status, so the memoized statuses and a merge replay are
+  the same on every machine and every day. `TSK_NOW` is the one override.
 - No compression, packing or branches of a plan (left for later by
-  design); no interactive prompts; no C dependencies.
+  design); no interactive prompts; no C dependencies. The local offset
+  comes from the C runtime (Unix) and kernel32 (Windows) through
+  declarations in `clock.rs`, not a crate, since both are linked by the
+  standard library already.
 - The agent-org guidance (`docs/agent-orgs.md`) is one org's way, not
   rules the tool enforces; don't encode an org's process into the binary.
 

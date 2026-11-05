@@ -1,0 +1,9 @@
+task
+{
+  "id": "t86",
+  "title": "add notes a root without --by; config require.by refuses it",
+  "parent": "t80",
+  "seq": 86,
+  "body": "The note after `add` without `--by`; the store config `require.by`.",
+  "types": []
+}
