@@ -1,0 +1,17 @@
+task
+{
+  "id": "t90",
+  "title": "Every test passes locally and in CI on all three platforms",
+  "parent": "t88",
+  "seq": 90,
+  "body": "2026-11-05: 48 green locally (12 cli, 15 agent_org, 7 merge, 14 trial) at low priority; CI on three platforms pending the push.\n\n2026-11-05: First CI run: windows green; ubuntu and macos failed to compile clock.rs (a private field in the struct tm declaration used with ..Default::default() outside its module, E0451; the GNU build here never compiles that branch). Fixed and type-checked locally against x86_64-unknown-linux-musl and aarch64-apple-darwin before the second push.",
+  "types": [],
+  "from_item": [
+    "release",
+    "tests"
+  ],
+  "docs": [
+    "README.md",
+    ".github/workflows/release.yml"
+  ]
+}

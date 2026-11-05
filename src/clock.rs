@@ -220,7 +220,7 @@ mod sys {
         pub wday: i32,
         pub yday: i32,
         pub isdst: i32,
-        _tail: [u64; 8],
+        pub tail: [u64; 8],
     }
     extern "C" {
         pub fn tzset();
