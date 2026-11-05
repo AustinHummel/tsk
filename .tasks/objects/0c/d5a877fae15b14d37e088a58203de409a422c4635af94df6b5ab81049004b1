@@ -1,0 +1,9 @@
+task
+{
+  "id": "t94",
+  "title": "Say so when adopt makes a task wait on itself",
+  "parent": null,
+  "seq": 94,
+  "body": "tsk adopt P X succeeds when X is a predecessor of P: the link expands to every leaf under P, X included, so X waits on itself and ready goes quiet. It shows only as a <loop> tag afterwards. Loops are surfaced, not forbidden, so the fix is a note at adopt naming the requirement and tsk move as the way out. Reproduced on a scratch store with tsk 0.6.0.",
+  "types": []
+}

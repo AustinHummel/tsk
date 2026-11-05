@@ -1,0 +1,9 @@
+task
+{
+  "id": "t95",
+  "title": "Make 'N open under it' count what ls counts",
+  "parent": null,
+  "seq": 95,
+  "body": "The block text said 6 open under the org's task 3 when ls-style counting gives 4 open leaves: it appears to count parents and the task itself. The two numbers should agree.",
+  "types": []
+}

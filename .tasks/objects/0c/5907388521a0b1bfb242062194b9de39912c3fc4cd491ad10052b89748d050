@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "b6863e57d2c005b25de90ab162f6c81a2acaed3db53bab2468322474a2a1ef7b",
+  "snapshot": "ff13620b0d622816122dc81b3219fe46be5a0f2425e741ff7cfb977469d0c546",
+  "time": "2026-11-05T21:36:49Z",
+  "author": "side tsk-review 2026-11-05",
+  "message": "add Say so when adopt makes a task wait on itself",
+  "subjects": [
+    "t94"
+  ],
+  "forced": false
+}

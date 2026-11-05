@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "0c5907388521a0b1bfb242062194b9de39912c3fc4cd491ad10052b89748d050",
+  "snapshot": "e86c0c7118f1accd6ef1fe787a686281eed8edcc0845bc4013dc242bb2f04aa1",
+  "time": "2026-11-05T21:36:49Z",
+  "author": "side tsk-review 2026-11-05",
+  "message": "add Make 'N open under it' count what ls counts",
+  "subjects": [
+    "t95"
+  ],
+  "forced": false
+}
