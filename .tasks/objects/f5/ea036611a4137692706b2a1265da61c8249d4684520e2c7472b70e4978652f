@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "ac3e2131e8ba01894b9ab450f18ee6eef6fbacd439d425f671d9d9fee9492b3b",
+  "snapshot": "5d35329d02361f5c57764a210df3dd2626c78c6a8f049c9a6eafd42fddc11365",
+  "time": "2026-11-19T20:06:14Z",
+  "author": "fable tsk-0.7.0-U1 2026-11-19",
+  "message": "amend 12 with Writer keys",
+  "subjects": [
+    "t96",
+    "t99"
+  ],
+  "forced": false
+}

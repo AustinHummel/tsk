@@ -1,0 +1,18 @@
+event
+{
+  "kind": "Applied",
+  "parent": "b80cb254d7e5dc6797077210d9bbfd4191b58193a5e173c1c71a94ab35ac8355",
+  "snapshot": "3c0d1a005e9e99fdfc9d1263e245beb06a8a0567c18e5d70d4779393925cea93",
+  "time": "2026-11-19T20:06:26Z",
+  "author": "fable tsk-0.7.0-U1 2026-11-19",
+  "message": "apply release to 12.5",
+  "subjects": [
+    "t101",
+    "t102",
+    "t103",
+    "t104",
+    "t105",
+    "t106"
+  ],
+  "forced": false
+}

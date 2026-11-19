@@ -1,0 +1,13 @@
+req
+{
+  "id": "r44",
+  "from": {
+    "kind": "task",
+    "id": "t99"
+  },
+  "on": "t98",
+  "reason": "a format a 0.6.0 binary refuses, before any keyed id is written",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-19T20:06:26Z"
+}

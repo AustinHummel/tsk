@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "56cb007e806b424415fe8f78fe12d4e823b1b8e06df9129183436868b47284fa",
+  "snapshot": "374da42081ea438f60dc2e1dc896bbdcc5f2e50ff06387ba2d43134fe7097d69",
+  "time": "2026-11-19T20:06:26Z",
+  "author": "fable tsk-0.7.0-U1 2026-11-19",
+  "message": "link 12.3 -> 12.4: keyed ids, which the shared-line merge never renames",
+  "subjects": [
+    "t99",
+    "t100"
+  ],
+  "forced": false
+}

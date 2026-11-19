@@ -1,0 +1,10 @@
+task
+{
+  "id": "t99",
+  "title": "Writer keys",
+  "parent": "t96",
+  "seq": 99,
+  "body": "U3. Size: 2 sessions. Design: docs/design-0.7.0.md. Rules for every unit: one commit, authored Austin Hummel with the Co-Authored-By trailer; each behaviour has an end-to-end test in tests/ that fails without it; run the suite as: env -u TSK_STORE -u TSK_AUTHOR nice -n 10 ~/.cargo/bin/cargo.exe test --locked; update the stated test count in CLAUDE.md; never point a build at this store or the org's.\nBuilds: tsk key (print) and tsk key <letters> (set; 1 to 3 lowercase letters; writes untracked .tasks/key, adds it to the ignore list; no event). The committed opt-in is tsk config ids keyed, and that write raises the format line. On a keyed store new_task_id and new_req_id (plan.rs:94-103) append the key (t150m, r98m); the counter is unchanged; existing ids keep their form; the key rides on the plan as a field that is never serialised. A keyed store's copy with no key refuses id-making commands only, in one sentence naming tsk key. The merge reads the number out of a keyed id (merge.rs:159, 220, 319) and never renames a keyed id; the same keyed id made on both sides refuses the merge, nothing written, with the way out printed. tsk holds no letters.\nTests (tests/cli.rs, tests/merge.rs): a_keyed_store_mints_ids_with_the_copys_key; existing_ids_keep_their_form_when_keys_turn_on; a_keyless_copy_of_a_keyed_store_refuses_to_mint; two_keyed_copies_merge_both_ways_and_no_id_changes; the_same_key_on_two_copies_refuses_the_merge. The existing tests pass unchanged: an unkeyed store behaves as before.",
+  "types": [],
+  "fit": "ids that carry the key of the copy that minted them, so two copies never mint the same id"
+}

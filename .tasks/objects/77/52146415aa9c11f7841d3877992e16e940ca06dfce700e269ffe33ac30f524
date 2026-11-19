@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "f5ea036611a4137692706b2a1265da61c8249d4684520e2c7472b70e4978652f",
+  "snapshot": "4eb2c261ad86bc5fb19de2823257e95ec4e6642b578bb4487741764b10fd975f",
+  "time": "2026-11-19T20:06:14Z",
+  "author": "fable tsk-0.7.0-U1 2026-11-19",
+  "message": "amend 12 with The shared-line merge",
+  "subjects": [
+    "t96",
+    "t100"
+  ],
+  "forced": false
+}

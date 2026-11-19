@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "a664115b41d2d41b7d75f1ba66846eec545f3c085fc3fcf08925eab24d32244e",
+  "snapshot": "5cdb0d8d31b4e65ee7191c1ae205682b1ee1e598c369b3452a1f0d9398c2863c",
+  "time": "2026-11-19T20:05:49Z",
+  "author": "fable tsk-0.7.0-U1 2026-11-19",
+  "message": "add 0.7.0: writer keys and the shared-line merge",
+  "subjects": [
+    "t96"
+  ],
+  "forced": false
+}

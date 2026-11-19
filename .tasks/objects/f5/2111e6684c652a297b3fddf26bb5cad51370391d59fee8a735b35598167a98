@@ -1,0 +1,13 @@
+req
+{
+  "id": "r42",
+  "from": {
+    "kind": "person",
+    "id": "Austin"
+  },
+  "on": "t96",
+  "reason": "'tsk 0.7.0 first' (2026-11-19, in chat to the org's mac-mini side session), on the org's t121 task-ids decision (austin-org, org/org-development/multi-machine-parallelism/decisions/t121-task-ids.md): two machines must write one store without an id or a published outline number ever changing",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-19T20:05:49Z"
+}

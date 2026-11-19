@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "7752146415aa9c11f7841d3877992e16e940ca06dfce700e269ffe33ac30f524",
+  "snapshot": "572e8aac2fd55fcc5edcab64149da5c873e5b30b1d95991304c73d036f4bbcff",
+  "time": "2026-11-19T20:06:14Z",
+  "author": "fable tsk-0.7.0-U1 2026-11-19",
+  "message": "amend 12 with Release 0.7.0",
+  "subjects": [
+    "t96",
+    "t101"
+  ],
+  "forced": false
+}

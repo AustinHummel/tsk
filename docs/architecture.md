@@ -190,5 +190,9 @@ are the public record):
 - `agent-org-fit.md`: the agent-org pass; the public copy is
   [agent-orgs.md](agent-orgs.md).
 
+The design of a release in progress, written before its code, is a note
+beside this file: [design-0.7.0.md](design-0.7.0.md) (writer keys and the
+shared-line merge).
+
 Those files are the why; this file is the what. When they disagree with
 the code, the code is what ships, and the disagreement is worth a task.

@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "11f4a6f6ed730bad42e51c3344a6b275636f4aabb27302f93f5001ea6b289ca5",
+  "snapshot": "2fe6fd27e7a75dea74629c2482e955c472322916744cabea41b0203891ee37dd",
+  "time": "2026-11-19T20:06:26Z",
+  "author": "fable tsk-0.7.0-U1 2026-11-19",
+  "message": "link 12.4 -> 12.5: the merge built and its blind review passed",
+  "subjects": [
+    "t100",
+    "t101"
+  ],
+  "forced": false
+}

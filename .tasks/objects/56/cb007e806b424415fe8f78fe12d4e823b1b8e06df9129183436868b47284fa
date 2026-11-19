@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "813b0898b33a90ed7b710249c3bfd93ae57fac16c7a8cc3f73d8f7fb4135074f",
+  "snapshot": "ad2d5a582b5a9732ea3e83554e91f4f470986248d00a53f16c43a4720ae1b195",
+  "time": "2026-11-19T20:06:26Z",
+  "author": "fable tsk-0.7.0-U1 2026-11-19",
+  "message": "link 12.2 -> 12.3: a format a 0.6.0 binary refuses, before any keyed id is written",
+  "subjects": [
+    "t98",
+    "t99"
+  ],
+  "forced": false
+}

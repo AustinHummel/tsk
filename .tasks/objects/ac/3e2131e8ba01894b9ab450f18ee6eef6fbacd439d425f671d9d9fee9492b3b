@@ -1,0 +1,15 @@
+event
+{
+  "kind": "Amended",
+  "parent": "3e71aead6349c3b69a3582beb18497e4610501caa3278a9652e4147f576ff51d",
+  "snapshot": "f4ad07c0d2a8b3cbf9c2433d20b20495b2007ad2e3b21338dc1a9cbb4caa7107",
+  "time": "2026-11-19T20:06:14Z",
+  "author": "fable tsk-0.7.0-U1 2026-11-19",
+  "message": "amend 12 with Store format 3; older forms still load",
+  "subjects": [
+    "t96",
+    "t97",
+    "t98"
+  ],
+  "forced": false
+}

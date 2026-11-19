@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "a5f3f787b193073dcef717813529dcb4a9eb51890a5d3885a6b72dfc524cac9d",
+  "snapshot": "f101b3eee12c27f2f38d22dfdb15b58f2c826818d7a45fb9de9c491db8a8ec99",
+  "time": "2026-11-19T20:06:26Z",
+  "author": "fable tsk-0.7.0-U1 2026-11-19",
+  "message": "link 12.1 -> 12.2: the design note, and its finding that the test runner must drop TSK_STORE first",
+  "subjects": [
+    "t97",
+    "t98"
+  ],
+  "forced": false
+}

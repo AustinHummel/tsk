@@ -1,0 +1,13 @@
+req
+{
+  "id": "r45",
+  "from": {
+    "kind": "task",
+    "id": "t100"
+  },
+  "on": "t99",
+  "reason": "keyed ids, which the shared-line merge never renames",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-19T20:06:26Z"
+}

@@ -1,0 +1,13 @@
+req
+{
+  "id": "r43",
+  "from": {
+    "kind": "task",
+    "id": "t98"
+  },
+  "on": "t97",
+  "reason": "the design note, and its finding that the test runner must drop TSK_STORE first",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-19T20:06:25Z"
+}

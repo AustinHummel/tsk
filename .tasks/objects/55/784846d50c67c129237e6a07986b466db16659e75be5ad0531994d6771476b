@@ -1,0 +1,11 @@
+task
+{
+  "id": "t97",
+  "title": "Design note and the release's tasks",
+  "parent": "t96",
+  "seq": 97,
+  "body": "U1. No code. docs/design-0.7.0.md settles the flag's name, the key command, how replay recognises its own events, what the git driver does and its rebase refusal, the report's shape, and drafts hard constraint 4. Files this root and its children.",
+  "types": [],
+  "core_of": "t96",
+  "fit": "what 0.7.0: writer keys and the shared-line merge was before Store format 3; older forms still load was split out"
+}

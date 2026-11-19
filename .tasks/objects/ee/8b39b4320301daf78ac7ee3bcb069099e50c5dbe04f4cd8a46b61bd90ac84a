@@ -1,0 +1,13 @@
+req
+{
+  "id": "r46",
+  "from": {
+    "kind": "task",
+    "id": "t101"
+  },
+  "on": "t100",
+  "reason": "the merge built and its blind review passed",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-19T20:06:26Z"
+}

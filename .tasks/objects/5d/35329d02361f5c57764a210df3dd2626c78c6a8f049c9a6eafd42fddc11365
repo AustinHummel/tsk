@@ -1,0 +1,10 @@
+snapshot
+{
+  "version": 2,
+  "tree": "fb1af071e88a7e81a8ef89867e525cb4ec1ced5682503d0d99a9af3e17a72159",
+  "types": {
+    "release": "6e8220a2a30609f30eedf903ca2023e46bfe9b9e12f753bcb24f58429c2dbf87"
+  },
+  "next_task": 99,
+  "next_req": 42
+}

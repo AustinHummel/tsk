@@ -1,0 +1,10 @@
+task
+{
+  "id": "t98",
+  "title": "Store format 3; older forms still load",
+  "parent": "t96",
+  "seq": 98,
+  "body": "U2. Size: 1 session, plus about half for the first step. Design: docs/design-0.7.0.md. Rules for every unit: one commit, authored Austin Hummel with the Co-Authored-By trailer; each behaviour has an end-to-end test in tests/ that fails without it; run the suite as: env -u TSK_STORE -u TSK_AUTHOR nice -n 10 ~/.cargo/bin/cargo.exe test --locked; update the stated test count in CLAUDE.md; never point a build at this store or the org's.\nFirst step, before any other test run: the test runner (tests/common/mod.rs run_from, and the direct Command sites in tests/agent_org.rs) removes TSK_STORE, TSK_AUTHOR and TSK_NOW from the child's environment. Today a shell with TSK_STORE set makes cargo test write its events into that store (design note, 'Where the plan and the code disagree').\nBuilds: FORMAT = 3 (store.rs:134) under the existing rule: the first write by 0.7.0 marks any store, keyed or not (Austin, 2026-11-19: 'Upgrade every store'), and an older binary then refuses it in one sentence. A committed format-2 fixture store written by 0.6.0 that 0.7.0 loads.\nTests: a_format_2_store_still_loads_and_is_raised_on_first_write (tests/agent_org.rs); the existing newer-format refusal test extended to 3.\nNote: this store goes to 3 on its first 0.7.0 write.",
+  "types": [],
+  "fit": "the on-disk format line, and the test runner's isolation, which every later unit's test run depends on"
+}

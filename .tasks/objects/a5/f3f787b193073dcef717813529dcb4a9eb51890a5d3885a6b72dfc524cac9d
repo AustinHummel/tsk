@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Started",
+  "parent": "3915c32f7b1498a085ab6f91bde1ecf31635ed218274b12b813cae2e639d9d92",
+  "snapshot": "572e8aac2fd55fcc5edcab64149da5c873e5b30b1d95991304c73d036f4bbcff",
+  "time": "2026-11-19T20:06:25Z",
+  "author": "fable tsk-0.7.0-U1 2026-11-19",
+  "message": "start 12.1",
+  "subjects": [
+    "t97"
+  ],
+  "forced": false
+}

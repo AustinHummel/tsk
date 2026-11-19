@@ -1,0 +1,10 @@
+task
+{
+  "id": "t96",
+  "title": "0.7.0: writer keys and the shared-line merge",
+  "parent": null,
+  "seq": 96,
+  "body": "Two failures to prevent: two copies mint the same id and the merge renames one; a merge with the shared line moves published outline numbers. The design is docs/design-0.7.0.md. The plan (units U1 to U8, sizes, tests) is austin-org, org/org-development/multi-machine-parallelism/tsk-0-7-0-plan-2026-11-19/; U1 to U5 are in this repo. Austin's answers, 2026-11-19: keys are opt-in per store and tsk hardcodes no letters; every store goes to format 3 on its first 0.7.0 write; git's driver does the shared-line merge on a keyed store and refuses during a rebase; no optional unit is built. Done is the release type on the last child.",
+  "types": [],
+  "narrative": "One child per unit of the org's plan that is in this repo, in build order: the design (the core), the format, the keys, the merge, the release. Each later one builds on the one before. The last carries the release type."
+}
