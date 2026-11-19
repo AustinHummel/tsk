@@ -69,6 +69,18 @@ fn lock_holder_exited(holder: &str) -> bool {
     }
 }
 
+/// Whether a claim's writer is gone: its process (`pid N`) has exited, or,
+/// for a claim with no process named (0.6.0 wrote them empty, and a writer
+/// fills its claim a moment after creating it), the claim is over a minute
+/// old. A process that cannot be asked about counts as alive.
+fn claim_left_behind(path: &Path) -> bool {
+    let text = fs::read_to_string(path).unwrap_or_default();
+    if text.lines().any(|l| l.starts_with("pid ")) {
+        return lock_holder_exited(&text);
+    }
+    fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|m| m.elapsed().ok()).is_some_and(|a| a >= Duration::from_secs(60))
+}
+
 /// What `.tasks/HEAD` says.
 #[derive(Debug, Default, Clone)]
 pub struct HeadFile {
@@ -119,11 +131,16 @@ fn lock_token(content: &str) -> Option<String> {
 /// Another process committed on top of the HEAD this command read, so its
 /// change was not written. The command is safe to run again.
 #[derive(Debug)]
-pub struct StoreMoved(pub String);
+pub struct StoreMoved(pub String, pub Option<String>);
 
 impl std::fmt::Display for StoreMoved {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the store moved while this command ran: another process committed on top of {}; nothing was written. Run it again.", &self.0[..10.min(self.0.len())])
+        let from = &self.0[..10.min(self.0.len())];
+        match &self.1 {
+            // HEAD has not moved: a writer holds the claim and is still at work.
+            Some(claim) => write!(f, "the store moved while this command ran: another tsk is committing on top of {} right now; nothing was written. Run it again when it finishes; if no tsk is running, remove {}", from, claim),
+            None => write!(f, "the store moved while this command ran: another process committed on top of {}; nothing was written. Run it again.", from),
+        }
     }
 }
 
@@ -535,18 +552,55 @@ impl Store {
     }
 
     /// Claim the right to advance HEAD from `from`: an atomic create of
-    /// `.tasks/claims/<from>`. Only one process ever succeeds for a given
-    /// parent, so no event can be committed on top of a parent that was
-    /// already committed on top of, whatever happened to the lock. A claim
-    /// that already exists means the store moved under this command.
+    /// `.tasks/claims/<from>`, holding this process's id. Only one process
+    /// ever succeeds for a given parent, so no event can be committed on top
+    /// of a parent that was already committed on top of, whatever happened
+    /// to the lock. A claim that already exists means the store moved under
+    /// this command, unless it was left behind: HEAD still names `from` and
+    /// the claim's process is gone (killed between claiming and moving HEAD,
+    /// or HEAD put back by `git checkout`). Then it guards nothing, and the
+    /// claim moves to the next name, `<from>.1`, `<from>.2`, ..., which every
+    /// process walks in the same order: nothing is removed, so two processes
+    /// that both judge a claim left behind still race for one name.
     pub fn claim(&self, from: &str) -> Result<()> {
         let dir = self.dir.join("claims");
         fs::create_dir_all(&dir)?;
         self.ensure_ignored("claims/");
-        match fs::OpenOptions::new().write(true).create_new(true).open(dir.join(from)) {
-            Ok(_) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(StoreMoved(from.to_string()).into()),
-            Err(e) => Err(e).with_context(|| format!("claiming {}", from)),
+        for k in 0u32.. {
+            let name = if k == 0 { from.to_string() } else { format!("{}.{}", from, k) };
+            let path = dir.join(&name);
+            match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(mut f) => {
+                    let _ = writeln!(f, "pid {}
+time {}", std::process::id(), crate::commit::now());
+                    return Ok(());
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if self.head()?.as_deref() != Some(from) {
+                        return Err(StoreMoved(from.to_string(), None).into());
+                    }
+                    // The holder is judged gone first, HEAD read after: a
+                    // gone process cannot move HEAD in between.
+                    if claim_left_behind(&path) && self.head()?.as_deref() == Some(from) {
+                        continue;
+                    }
+                    return Err(StoreMoved(from.to_string(), Some(format!("{}/claims/{}", DIR, name))).into());
+                }
+                Err(e) => return Err(e).with_context(|| format!("claiming {}", from)),
+            }
+        }
+        unreachable!()
+    }
+
+    /// Release every claim on `hash` (its first name and the later ones),
+    /// for a deliberate move of HEAD back to it.
+    pub fn release_claims(&self, hash: &str) {
+        let Ok(rd) = fs::read_dir(self.dir.join("claims")) else { return };
+        for e in rd.flatten() {
+            let n = e.file_name().to_string_lossy().to_string();
+            if n == hash || n.strip_prefix(hash).and_then(|r| r.strip_prefix('.')).is_some_and(|r| r.parse::<u32>().is_ok()) {
+                let _ = fs::remove_file(e.path());
+            }
         }
     }
 

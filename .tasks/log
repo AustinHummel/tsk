@@ -196,3 +196,6 @@
 2026-11-19T20:28:10Z  4ff6b3ee49  completed        complete 12.3  [12.3]  -- opus tsk-0.7.0-U2U3 2026-11-19
 2026-11-19T20:34:16Z  17f8e9065b  started          start 12.4  [12.4]  -- opus tsk-0.7.0-U4 2026-11-19
 2026-11-19T20:45:14Z  133144ce8f  completed        complete 12.4  [12.4]  -- opus tsk-0.7.0-U4 2026-11-19
+2026-11-19T21:02:25Z  c31af2327a  amended          amend 12 with Fix the blind review's two merge defects  [12 12.6]  -- opus tsk-0.7.0-U4-fixes 2026-11-19
+2026-11-19T21:02:31Z  2a1e8aad3d  started          start 12.6  [12.6]  -- opus tsk-0.7.0-U4-fixes 2026-11-19
+2026-11-19T21:09:00Z  1ccc7d415b  completed        complete 12.6  [12.6]  -- opus tsk-0.7.0-U4-fixes 2026-11-19

@@ -797,3 +797,191 @@ fn the_driver_refuses_during_a_rebase_on_a_keyed_store() {
     assert!(ok && text.contains("pc's root") && text.contains("mac's root"), "{}", text);
     let _ = std::fs::remove_dir_all(&upc.dir);
 }
+
+// ----- 0.7: which side is the shared line, and claims a killed writer left ----
+
+/// The shared line's git ref is `origin/main` unless the store names another.
+/// A stash pop brings git's sides the other way round: %A is the shared line,
+/// %B the stash. Settled as the driver recorded it, the stash would be kept
+/// and the published events replayed after it, re-hashed and renumbered.
+#[test]
+fn a_stash_pop_keeps_the_shared_line_with_the_sides_swapped() {
+    let m = Machine::new("stash-pop");
+    let (mac, pc) = m.pair("stash-pop", true);
+    // Two unpublished events on the PC, not committed.
+    pc.ok(&["amend", "1", "pc's piece", "--fit", "hers"]); // t5p, 1.4
+    pc.ok(&["add", "pc's root", "--by", "PC: work"]); // t6p, 2
+    // The shared line moves on.
+    later();
+    mac.ok(&["amend", "1", "mac's piece", "--fit", "his"]); // t5m, 1.4
+    mac.ok(&["add", "mac's root", "--by", "Mac: work"]); // t6m, 2
+    m.commit(&mac.dir, "mac");
+    let shared: Vec<String> = mac.ok(&["rev-list"]).lines().map(String::from).collect();
+    let published = positions(&mac.ok(&["plan"]));
+    m.ok(&pc.dir, &["stash", "push", "-u", "-m", "tsk-test-stash"]);
+    m.ok(&pc.dir, &["pull", "--no-rebase", "--no-edit", "-q"]);
+    m.ok(&pc.dir, &["stash", "pop"]);
+    assert!(pc.read(".tasks/HEAD").contains("\nmerge "), "the driver left the merge pending: {}", pc.read(".tasks/HEAD"));
+    let (ok, text) = m.tsk(&pc, &["plan"]);
+    assert!(ok && text.contains("sides swapped"), "the swap is reported:\n{}", text);
+    let merged: Vec<String> = pc.ok(&["rev-list"]).lines().map(String::from).collect();
+    assert!(merged.ends_with(&shared), "the shared line, hash for hash:\nmerged {:?}\nshared {:?}", merged, shared);
+    let plan = positions(&pc.ok(&["plan"]));
+    for p in &published {
+        assert!(plan.contains(p), "published {} kept its number: {:?}", p, plan);
+    }
+    assert!(plan.contains(&"1.5 t5p".to_string()) && plan.contains(&"3 t6p".to_string()), "{:?}", plan);
+    // Committed and taken back, the shared line's home keeps every number.
+    m.commit(&pc.dir, "merged");
+    m.ok(&mac.dir, &["pull", "--no-rebase", "--no-edit", "-q", pc.dir.to_str().unwrap(), "main"]);
+    let back = positions(&mac.ok(&["plan"]));
+    for p in &published {
+        assert!(back.contains(p), "published {} kept its number on the Mac: {:?}", p, back);
+    }
+    assert_eq!(head(&mac), head(&pc));
+}
+
+/// A cherry-pick also brings the sides the other way round.
+#[test]
+fn a_cherry_pick_keeps_the_shared_line_with_the_sides_swapped() {
+    let m = Machine::new("cherry-pick");
+    let (mac, pc) = m.pair("cherry-pick", true);
+    m.ok(&pc.dir, &["checkout", "-q", "-b", "side"]);
+    pc.ok(&["add", "pc's root", "--by", "PC: work"]); // t5p
+    m.commit(&pc.dir, "side work");
+    m.ok(&pc.dir, &["checkout", "-q", "main"]);
+    later();
+    mac.ok(&["add", "mac's root", "--by", "Mac: work"]); // t5m, 2
+    mac.ok(&["add", "mac's second", "--by", "Mac: work"]); // t6m, 3
+    m.commit(&mac.dir, "mac");
+    let shared: Vec<String> = mac.ok(&["rev-list"]).lines().map(String::from).collect();
+    m.ok(&pc.dir, &["pull", "--no-rebase", "--no-edit", "-q"]);
+    let out = m.ok(&pc.dir, &["cherry-pick", "side"]);
+    assert!(!out.contains("CONFLICT"), "{}", out);
+    let (ok, text) = m.tsk(&pc, &["plan"]);
+    assert!(ok && text.contains("sides swapped"), "{}", text);
+    let merged: Vec<String> = pc.ok(&["rev-list"]).lines().map(String::from).collect();
+    assert!(merged.ends_with(&shared), "merged {:?}\nshared {:?}", merged, shared);
+    let plan = positions(&pc.ok(&["plan"]));
+    for p in ["2 t5m", "3 t6m", "4 t5p"] {
+        assert!(plan.contains(&p.to_string()), "{}: {:?}", p, plan);
+    }
+}
+
+/// When the shared line's head can't be read, or neither side holds it, the
+/// merge is refused, nothing written, with the way out; a read shows our side.
+#[test]
+fn a_merge_whose_shared_line_cannot_be_told_is_refused() {
+    let m = Machine::new("no-shared");
+    let (mac, pc) = m.pair("no-shared", true);
+    pc.ok(&["add", "pc's root", "--by", "PC: work"]);
+    m.commit(&pc.dir, "pc");
+    mac.ok(&["add", "mac's root", "--by", "Mac: work"]);
+    m.commit(&mac.dir, "mac");
+    let mac_head = head(&mac);
+    // The Mac is the shared line's home: it has no origin/main.
+    m.ok(&mac.dir, &["pull", "--no-rebase", "--no-edit", "-q", pc.dir.to_str().unwrap(), "main"]);
+    let marker = mac.read(".tasks/HEAD");
+    assert!(marker.contains("\nmerge "), "{}", marker);
+    let (ok, text) = m.tsk(&mac, &["add", "more"]);
+    assert!(
+        !ok && text.contains("cannot read the shared line's store head at origin/main") && text.contains("nothing was written") && text.contains("tsk config shared <ref>"),
+        "{}",
+        text
+    );
+    assert_eq!(mac.read(".tasks/HEAD"), marker, "nothing written");
+    let (ok, text) = m.tsk(&mac, &["plan"]);
+    assert!(ok && text.contains("showing our side") && text.contains("2 t5m"), "a read is not blocked:\n{}", text);
+    assert_eq!(mac.read(".tasks/HEAD"), marker, "nothing written");
+    // The way out: name the shared line. Here it is the Mac's own main.
+    mac.ok(&["config", "shared", "main"]);
+    let (ok, text) = m.tsk(&mac, &["plan"]);
+    assert!(ok && text.contains("sides swapped"), "{}", text);
+    let plan = positions(&mac.ok(&["plan"]));
+    assert!(plan.contains(&"2 t5m".to_string()) && plan.contains(&"3 t5p".to_string()), "{:?}", plan);
+    assert!(mac.ok(&["rev-list"]).contains(&mac_head));
+}
+
+/// A pid no process holds any more: a child that has exited.
+fn dead_pid() -> u32 {
+    let mut child = common::scrubbed("git").arg("--version").stdout(std::process::Stdio::null()).spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    pid
+}
+
+fn backdate(path: &Path, secs: u64) {
+    let f = std::fs::File::options().write(true).open(path).unwrap();
+    f.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(secs)).unwrap();
+}
+
+/// A writer killed after claiming our HEAD and before moving it (here, in
+/// the middle of settling a merge) leaves the claim and objects behind.
+/// HEAD still names the claimed parent and the claim's process is gone, so
+/// the claim guards nothing: the next command goes on. A claim whose
+/// process is alive still refuses a write, naming the file, and never
+/// blocks a read.
+#[test]
+fn a_claim_left_by_a_killed_writer_does_not_wedge_the_store() {
+    let (a, b) = pair("killed", None);
+    a.ok(&["add", "alice's root"]);
+    b.ok(&["add", "bob's root"]);
+    bring_objects(&b.dir, &a.dir);
+    let (ours, theirs) = (head(&a), head(&b));
+    std::fs::write(a.dir.join(".tasks/HEAD"), format!("{}\nmerge {}\n", ours, theirs)).unwrap();
+    std::fs::create_dir_all(a.dir.join(".tasks/claims")).unwrap();
+    std::fs::write(a.dir.join(".tasks/claims").join(&ours), format!("pid {}\ntime 2026-11-19T00:00:00Z\n", dead_pid())).unwrap();
+    let (ok, text) = a.run(&["plan"]);
+    assert!(ok && text.contains("merged "), "the read settles the merge:\n{}", text);
+    assert_eq!(a.read(".tasks/HEAD").lines().count(), 1);
+    assert_ne!(head(&a), ours);
+    a.ok(&["add", "after"]);
+    a.ok(&["reset", &ours]);
+    a.ok(&["prune"]);
+
+    // A live writer's claim on HEAD: a write is refused, naming the file;
+    // a read shows our side.
+    let (c, d) = pair("live-claim", None);
+    c.ok(&["add", "alice's root"]);
+    d.ok(&["add", "bob's root"]);
+    bring_objects(&d.dir, &c.dir);
+    let (ours, theirs) = (head(&c), head(&d));
+    let marker = format!("{}\nmerge {}\n", ours, theirs);
+    std::fs::write(c.dir.join(".tasks/HEAD"), &marker).unwrap();
+    std::fs::create_dir_all(c.dir.join(".tasks/claims")).unwrap();
+    let claim = c.dir.join(".tasks/claims").join(&ours);
+    std::fs::write(&claim, format!("pid {}\ntime 2026-11-19T00:00:00Z\n", std::process::id())).unwrap();
+    let (ok, text) = c.run(&["add", "more"]);
+    assert!(!ok && text.contains("nothing was written") && text.contains(&format!(".tasks/claims/{}", ours)), "{}", text);
+    assert_eq!(c.read(".tasks/HEAD"), marker);
+    let (ok, text) = c.run(&["plan"]);
+    assert!(ok && text.contains("showing our side"), "{}", text);
+    assert_eq!(c.read(".tasks/HEAD"), marker);
+    // The way out the sentence names.
+    std::fs::remove_file(&claim).unwrap();
+    c.ok(&["add", "more"]);
+    assert_eq!(c.read(".tasks/HEAD").lines().count(), 1);
+}
+
+/// `git checkout` back to a store HEAD that was already built on: the claim
+/// from the line left behind no longer refuses every write. 0.6.0 left its
+/// claims empty; one a minute old counts as left behind too.
+#[test]
+fn a_checkout_back_to_a_built_on_head_still_takes_writes() {
+    let m = Machine::new("checkout-back");
+    let (mac, _pc) = m.pair("checkout-back", false);
+    let x = head(&mac);
+    mac.ok(&["add", "on the line left behind"]);
+    m.ok(&mac.dir, &["checkout", "--", ".tasks/HEAD"]);
+    assert_eq!(head(&mac), x);
+    mac.ok(&["add", "after the checkout"]);
+    m.ok(&mac.dir, &["checkout", "--", ".tasks/HEAD"]);
+    // As 0.6.0 left them: empty files, a minute old.
+    for e in std::fs::read_dir(mac.dir.join(".tasks/claims")).unwrap().flatten() {
+        std::fs::write(e.path(), "").unwrap();
+        backdate(&e.path(), 120);
+    }
+    mac.ok(&["add", "after a 0.6.0 claim"]);
+    let plan = mac.ok(&["plan"]);
+    assert!(plan.contains("after a 0.6.0 claim") && !plan.contains("after the checkout"), "{}", plan);
+}

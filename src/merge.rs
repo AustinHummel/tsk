@@ -75,6 +75,9 @@ pub struct Outcome {
     /// pre-merge plan whose number differs on the merged plan.
     pub moved: Vec<(TaskId, String, String)>,
     pub both: Vec<Both>,
+    /// The shared line was our HEAD, not theirs (a stash pop or a
+    /// cherry-pick): its ref. It was kept and their events replayed after it.
+    pub swapped: Option<String>,
 }
 
 /// A leaf whose status changed on both sides of a shared-line merge.
@@ -421,9 +424,11 @@ fn identity(h: &Hash, ev: &Event) -> Hash {
 /// Perform the merge of `theirs` into the store's HEAD. The caller holds
 /// the lock. Writes nothing when there are unresolved conflicts or on a
 /// dry run.
-pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool, upstream: bool) -> Result<Outcome> {
+/// `swap` names the shared line's ref when it is our HEAD, not theirs
+/// (`orient`): the shared-line merge then keeps ours and replays theirs.
+pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool, upstream: bool, swap: Option<String>) -> Result<Outcome> {
     if upstream {
-        perform_upstream(store, theirs, prefer, dry_run)
+        perform_upstream(store, theirs, prefer, dry_run, swap)
     } else {
         perform_canonical(store, theirs, prefer, dry_run)
     }
@@ -686,12 +691,17 @@ fn moved(before: &Plan, after: &Plan, tmap: &HashMap<(Side, TaskId), TaskId>) ->
 /// not on it, by hash or by the original they stand for, are replayed after
 /// its head in our order, then one `Merged` event. Nothing of ours left is
 /// a fast-forward to their head.
-fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool) -> Result<Outcome> {
-    let mut out = Outcome { upstream: true, ..Outcome::default() };
-    let ours = store.head()?.ok_or_else(|| anyhow!("no HEAD"))?;
+fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool, swap: Option<String>) -> Result<Outcome> {
+    let mut out = Outcome { upstream: true, swapped: swap.clone(), ..Outcome::default() };
+    let head = store.head()?.ok_or_else(|| anyhow!("no HEAD"))?;
     if !store.has_object(theirs) {
         bail!("event {} is not in this store (fetch or pull first: the objects arrive with git)", &theirs[..10]);
     }
+    // Below, `ours` is the copy whose events are replayed and `theirs` the
+    // shared line kept; swapped, the shared line is our HEAD. HEAD moves
+    // from `head` either way.
+    let (ours, theirs) = if swap.is_some() { (theirs.clone(), head.clone()) } else { (head.clone(), theirs.clone()) };
+    let theirs = &theirs;
     let our_hist = store.history_from(Some(ours.clone()))?;
     let our_hashes: HashSet<&Hash> = our_hist.iter().map(|(h, _)| h).collect();
     // Their line is the authority: their head on ours by hash, and only by
@@ -718,6 +728,11 @@ fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run:
     // event of ours.
     let have: HashSet<Hash> = our_hist.iter().flat_map(|(h, e)| std::iter::once(h.clone()).chain(e.replayed_from.clone())).collect();
     let their_new: Vec<&Event> = their_hist.iter().take_while(|(h, _)| !our_hashes.contains(h)).filter(|(h, e)| !have.contains(&identity(h, e))).map(|(_, e)| e).collect::<Vec<_>>().into_iter().rev().collect();
+    if our_seg.is_empty() && *theirs == head {
+        // Swapped, with nothing of theirs off our line: already merged.
+        out.head = Some(head);
+        return Ok(out);
+    }
     if our_seg.is_empty() {
         out.fast_forward = true;
         out.head = Some(theirs.clone());
@@ -725,7 +740,7 @@ fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run:
         let merged = store.load_plan(their_snap)?;
         out.moved = moved(&before, &merged, &HashMap::new());
         if !dry_run {
-            store.advance_head(Some(&ours), theirs, &format!("merge {} (fast-forward)", &theirs[..10]))?;
+            store.advance_head(Some(&head), theirs, &format!("merge {} (fast-forward)", &theirs[..10]))?;
             let history = store.history()?;
             store.rebuild_log(&history, &merged)?;
         }
@@ -783,10 +798,13 @@ fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run:
     if !out.conflicts.is_empty() || dry_run {
         return Ok(out);
     }
-    store.claim(&ours)?;
+    store.claim(&head)?;
     let prev = write_staged(store, staged, theirs, &mut out)?;
     store.set_head(&prev)?;
-    let mut msg = format!("merge {} (from {}): shared line kept, {} event(s) of ours replayed after it", &theirs[..10], &ours[..10], out.replayed.len());
+    let mut msg = match &swap {
+        None => format!("merge {} (from {}): shared line kept, {} event(s) of ours replayed after it", &theirs[..10], &ours[..10], out.replayed.len()),
+        Some(r) => format!("merge {} (from {}): sides swapped, the shared line ({}) was ours: kept, {} event(s) of theirs replayed after it", &ours[..10], &head[..10], r, out.replayed.len()),
+    };
     if !out.renumbered.is_empty() {
         let maps: Vec<String> = out.renumbered.iter().map(|(s, a, b)| format!("{} {}->{}", s.name(), a, b)).collect();
         msg.push_str(&format!("; renumbered {}", maps.join(", ")));
@@ -803,7 +821,7 @@ fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run:
         msg.push_str(&format!("; {} conflict(s) resolved preferring {}", out.resolved, prefer.map(|p| p.name()).unwrap_or("?")));
     }
     let h = commit::write_on(store, &rp.plan, Some(prev.clone()), Commit::new(EventKind::Merged, msg, vec![]))?;
-    store.reflog_append(Some(&ours), &h, &format!("merge {} (shared line): HEAD was {}", &theirs[..10], &ours[..10]))?;
+    store.reflog_append(Some(&head), &h, &format!("merge {} (shared line): HEAD was {}", &theirs[..10], &head[..10]))?;
     let history = store.history()?;
     store.rebuild_log(&history, &rp.plan)?;
     out.head = Some(h);
@@ -826,6 +844,7 @@ fn report(store: &Store, theirs: &Hash, out: &Outcome, dry_run: bool) {
         });
         if out.upstream {
             v["upstream"] = json!(true);
+            v["swapped"] = json!(out.swapped.is_some());
             v["moved"] = json!(out.moved.iter().map(|(id, a, b)| json!({"id": id, "from": a, "to": b})).collect::<Vec<_>>());
         }
         println!("{}", serde_json::to_string_pretty(&v).unwrap());
@@ -836,6 +855,9 @@ fn report(store: &Store, theirs: &Hash, out: &Outcome, dry_run: bool) {
             say(&format!("moved: {} {} -> {}", id, a, b));
         }
     };
+    if let Some(r) = &out.swapped {
+        say(&swapped_note(r));
+    }
     if out.fast_forward {
         say_moved();
         say(&format!("fast-forward to {}: {} event(s){}", &theirs[..10], out.replayed.len(), if dry_run { " (dry run)" } else { "" }));
@@ -877,7 +899,8 @@ pub fn merge(theirs: Option<String>, prefer: Option<String>, dry_run: bool, git:
     let hf = store.read_head_file()?;
     // On a keyed store, what came through git (the driver's `merge` line,
     // conflict markers, or MERGE_HEAD) is the shared line.
-    let upstream = upstream || (store.keyed() && (theirs.is_none() || git));
+    let inferred = !upstream && store.keyed() && (theirs.is_none() || git);
+    let upstream = upstream || inferred;
     let theirs = match (theirs, git) {
         (Some(t), _) => store.resolve_hash(&t)?,
         (None, true) => crate::views::git_head_at(&store, "MERGE_HEAD").context("no merge in progress (MERGE_HEAD)")?,
@@ -885,7 +908,8 @@ pub fn merge(theirs: Option<String>, prefer: Option<String>, dry_run: bool, git:
     };
     let ours = hf.ours.clone().ok_or_else(|| anyhow!("no HEAD"))?;
     let was_pending = hf.conflicted || hf.pending.is_some();
-    let out = perform(&store, &theirs, prefer, dry_run, upstream)?;
+    let swap = if inferred { orient(&store, &ours, &theirs)? } else { None };
+    let out = perform(&store, &theirs, prefer, dry_run, upstream, swap)?;
     if !out.conflicts.is_empty() {
         if was_pending && !dry_run {
             store.set_head_pending(&ours, &theirs)?;
@@ -904,6 +928,48 @@ pub fn merge(theirs: Option<String>, prefer: Option<String>, dry_run: bool, git:
     }
     report(&store, &theirs, &out, dry_run);
     Ok(())
+}
+
+/// The shared line's git ref: config `shared`, else `origin/main`.
+fn shared_ref(store: &Store) -> String {
+    store.config_value("shared").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "origin/main".to_string())
+}
+
+fn swapped_note(r: &str) -> String {
+    format!("sides swapped: the shared line ({}) was our HEAD, not theirs, as after a stash pop or a cherry-pick, so it was kept and theirs replayed after it", r)
+}
+
+/// Which side of a merge that came through git holds the shared line: the
+/// store HEAD committed at the shared ref. git's sides are ours and theirs
+/// in a merge or a pull, but the other way round in a stash pop or a
+/// cherry-pick, and the driver cannot tell them apart. Theirs holds it:
+/// settle as recorded (None). Only ours holds it: settle with the sides
+/// swapped (the ref's name). Neither, or the ref can't be read: refused,
+/// nothing written.
+fn orient(store: &Store, ours: &Hash, theirs: &Hash) -> Result<Option<String>> {
+    let holds = |line: &Hash, h: &Hash| -> Result<bool> { Ok(store.history_from(Some(line.clone()))?.iter().any(|(x, _)| x == h)) };
+    // Missing, or already on our line: the merge itself says so.
+    if !store.has_object(theirs) || holds(ours, theirs)? {
+        return Ok(None);
+    }
+    let r = shared_ref(store);
+    let way = format!("name the shared line with `tsk config shared <ref>`, or, if {} is the shared line, run `tsk merge --upstream`", &theirs[..10]);
+    let s = crate::views::git_head_at(store, &r)
+        .map_err(|e| anyhow!("tsk cannot read the shared line's store head at {} ({}), so it cannot tell which side of this merge to keep, and nothing was written: run `git fetch`, {}", r, e, way))?;
+    if holds(theirs, &s)? {
+        return Ok(None);
+    }
+    if holds(ours, &s)? {
+        return Ok(Some(r));
+    }
+    bail!(
+        "neither side of this merge holds the shared line's store head ({} at {}), so tsk cannot tell which side to keep, and nothing was written: merge {} first (`git merge {}`), {}",
+        &s[..10],
+        r,
+        r,
+        r,
+        way
+    )
 }
 
 /// Settle a pending merge named in HEAD before a command runs. For a
@@ -925,8 +991,23 @@ pub fn settle_pending(store: &Store, writing: bool) -> Result<()> {
     let hf = store.read_head_file()?;
     let Some(theirs) = hf.to_merge() else { return Ok(()) };
     let ours = hf.ours.clone().ok_or_else(|| anyhow!("HEAD names a merge but no event"))?;
-    // A keyed store settles what git brought as the shared-line merge.
-    let out = perform(store, &theirs, None, false, store.keyed())?;
+    // A keyed store settles what git brought as the shared-line merge, on
+    // whichever side holds the shared line. A read that cannot settle (the
+    // shared line can't be told, or a live writer holds the claim) shows
+    // our side; only a write is refused.
+    let settled = (|| {
+        let swap = if store.keyed() { orient(store, &ours, &theirs)? } else { None };
+        perform(store, &theirs, None, false, store.keyed(), swap)
+    })();
+    let out = match settled {
+        Ok(out) => out,
+        Err(e) if !writing => {
+            drop(lock);
+            eprintln!("tsk: a merge of {} is pending and was not settled: {}; showing our side", &theirs[..10], e);
+            return Ok(());
+        }
+        Err(e) => return Err(e),
+    };
     if !out.conflicts.is_empty() {
         store.set_head_pending(&ours, &theirs)?;
         let msg = format!(
@@ -959,6 +1040,9 @@ pub fn settle_pending(store: &Store, writing: bool) -> Result<()> {
             out.replayed.len(),
             if out.renumbered.is_empty() { String::new() } else { format!(", {} id(s) renumbered", out.renumbered.len()) }
         );
+        if let Some(r) = &out.swapped {
+            eprintln!("tsk: {}", swapped_note(r));
+        }
         for (id, a, b) in &out.moved {
             eprintln!("tsk: moved: {} {} -> {}", id, a, b);
         }

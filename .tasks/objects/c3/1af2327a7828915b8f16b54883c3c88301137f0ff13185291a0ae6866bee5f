@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "133144ce8f7c8de9fd5ad47a20b623236c22125f7ae0debf8d6b353cce9f155b",
+  "snapshot": "291c0b238d038ab6195db5139dda9ae09e290060d0282bab6bc18fa5af371e64",
+  "time": "2026-11-19T21:02:25Z",
+  "author": "opus tsk-0.7.0-U4-fixes 2026-11-19",
+  "message": "amend 12 with Fix the blind review's two merge defects",
+  "subjects": [
+    "t96",
+    "t108"
+  ],
+  "forced": false
+}

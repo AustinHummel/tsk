@@ -1566,7 +1566,7 @@ pub fn reset(event: String) -> Result<()> {
     store.move_head(&h, &format!("reset to {}: {} {}", &h[..10], ev.kind.name(), ev.message))?;
     // Committing on top of the event we reset to is legitimate again, so
     // its claim (from the line we are leaving) is released.
-    let _ = std::fs::remove_file(store.dir.join("claims").join(&h));
+    store.release_claims(&h);
     let plan = Plan::load(&store, &snap)?;
     let history = store.history()?;
     store.rebuild_log(&history, &plan)?;

@@ -1,0 +1,10 @@
+task
+{
+  "id": "t108",
+  "title": "Fix the blind review's two merge defects",
+  "parent": "t96",
+  "seq": 108,
+  "body": "",
+  "types": [],
+  "fit": "the shared-line merge's two defects from its blind review: a stash pop or cherry-pick that inverts the merge, and a killed writer's claim that wedges the store"
+}

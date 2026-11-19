@@ -188,9 +188,18 @@ An unkeyed store's driver is unchanged in every case.
 
 ## Limits this design leaves
 
-- A cherry-pick, revert or `stash pop` that touches `.tasks/HEAD` on a
-  keyed store is settled as if the other side were the shared line. git
-  gives the driver nothing to tell them apart.
+- git gives the driver nothing to tell a merge from a cherry-pick,
+  revert or `stash pop`, so the side is decided at settling (added after
+  the blind review, 2026-11-19): the shared line is the store HEAD
+  committed at config `shared` (default `origin/main`; a side branch's
+  `@{upstream}` is not it). Theirs holds it: settled as recorded. Only
+  ours holds it: settled with the sides swapped, and the report says so.
+  Neither, or the ref can't be read: a write is refused, nothing
+  written, naming `tsk config shared <ref>` and `tsk merge --upstream`
+  (an explicit `--upstream` is the user saying theirs is the shared
+  line, and is not checked); a read shows our side. When both hold it,
+  everything past it is unpublished on both sides and either order
+  moves nothing published.
 - A machine with no driver gets conflict markers; settling them during a
   rebase is not refused.
 - Our own unpublished `Merged` events are markers and are not replayed
@@ -203,4 +212,5 @@ An unkeyed store's driver is unchanged in every case.
   happens at the next tsk command and is uncommitted work until the
   session commits it. A copy that pushes before that hands the settling
   to whoever pulls.
-- tsk cannot check that "theirs" is the shared line.
+- The shared line is only as current as the last `git fetch`: events
+  pushed since are not known to be published.

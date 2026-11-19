@@ -409,8 +409,8 @@ enum Cmd {
     /// Move HEAD to an earlier (or any) event, recorded in the reflog. Nothing is deleted.
     Reset { event: String },
     /// Read or set config (`author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`,
-    /// `color.ui`, `require.by`, `ids`). `ids keyed` turns writer keys on for every copy
-    /// (see `tsk key`).
+    /// `color.ui`, `require.by`, `ids`, `shared`). `ids keyed` turns writer keys on for every copy
+    /// (see `tsk key`); `shared` is the git ref of the shared line (default `origin/main`).
     Config { key: Option<String>, value: Option<String> },
 
     // ----- plumbing -----
