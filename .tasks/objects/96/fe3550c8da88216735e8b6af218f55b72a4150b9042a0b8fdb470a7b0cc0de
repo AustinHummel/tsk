@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Started",
+  "parent": "73abfba8e65372bdbb1e8c5b11d75ffb993f8fac268290c6fec3176fc200b903",
+  "snapshot": "f25f875acee3cc8b976173f2730e15be52eebd024e5d54d9b21b52e7920cbba3",
+  "time": "2026-11-19T21:35:24Z",
+  "author": "opus tsk-0.7.0-status-conflict 2026-11-19",
+  "message": "start 12.7",
+  "subjects": [
+    "t109"
+  ],
+  "forced": false
+}

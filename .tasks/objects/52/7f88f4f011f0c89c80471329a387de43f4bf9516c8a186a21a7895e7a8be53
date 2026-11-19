@@ -1,0 +1,10 @@
+task
+{
+  "id": "t109",
+  "title": "A status changed on both sides is a merge conflict",
+  "parent": "t96",
+  "seq": 109,
+  "body": "",
+  "types": [],
+  "fit": "Austin's call on the blind review's third finding (2026-11-19): a status changed on both sides since the fork stops the merge like a field conflict, settled by --prefer, instead of replay order deciding"
+}

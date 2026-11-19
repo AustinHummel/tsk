@@ -43,9 +43,10 @@ impl Status {
     }
 }
 
-/// Fold one event into the per-leaf status map.
-pub fn apply_event(out: &mut HashMap<TaskId, Status>, ev: &Event) {
-    let st = match ev.kind {
+/// The status a status event sets on each task it names; None for every
+/// kind that is not a status event.
+pub fn set_by(kind: EventKind) -> Option<Status> {
+    Some(match kind {
         EventKind::Started => Status::InProgress,
         EventKind::Paused => Status::Paused,
         EventKind::Completed => Status::Complete,
@@ -55,7 +56,15 @@ pub fn apply_event(out: &mut HashMap<TaskId, Status>, ev: &Event) {
         // On an ongoing task: closed is its own entry being complete.
         EventKind::Closed => Status::Complete,
         EventKind::Reopened => Status::Todo,
-        EventKind::BrokenDown | EventKind::Applied | EventKind::Adopted | EventKind::Amended => Status::Todo,
+        _ => return None,
+    })
+}
+
+/// Fold one event into the per-leaf status map.
+pub fn apply_event(out: &mut HashMap<TaskId, Status>, ev: &Event) {
+    let st = match (set_by(ev.kind), ev.kind) {
+        (Some(st), _) => st,
+        (None, EventKind::BrokenDown | EventKind::Applied | EventKind::Adopted | EventKind::Amended) => Status::Todo,
         _ => return,
     };
     if matches!(ev.kind, EventKind::Adopted | EventKind::Amended) {

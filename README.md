@@ -316,8 +316,16 @@ place; `tsk diff` still finds the committed HEAD through `replayed_from`.
 Ids that collide are renumbered in that order, on whichever side comes
 later, and the map is reported (`ours t20 is now t21`; outline numbers
 follow). A field changed differently on both sides is a conflict: nothing
-is written, and `--prefer ours` or `--prefer theirs` decides. A leaf with
-status events on both sides is reported; the later event stands.
+is written, and `--prefer ours` or `--prefer theirs` decides. So is a
+status changed on both sides: a task that a status event (start, pause,
+complete, uncomplete, drop, spike, close, reopen) names on each side
+since the fork, and that the two sides leave in different statuses, stops
+the merge, naming both (`1.1 t2 Build: status (ours in-progress, started
+at ...; theirs complete, completed at ...)`); the preferred side's status
+stands. Both sides leaving it in the same status (both completed) is no
+conflict. Each task touched on both sides and settled is reported
+(`status on both sides: ...; the same on both sides` or `; theirs
+preferred`).
 `--dry-run` shows all of this without writing.
 
 Git carries the objects (add-only, never a conflict); only `HEAD` can

@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "1ccc7d415bccffbc21aa505829f31ff74f0f0fb404c1bc9f7f8ce01a3c0c6ddf",
+  "snapshot": "f25f875acee3cc8b976173f2730e15be52eebd024e5d54d9b21b52e7920cbba3",
+  "time": "2026-11-19T21:35:18Z",
+  "author": "opus tsk-0.7.0-status-conflict 2026-11-19",
+  "message": "amend 12 with A status changed on both sides is a merge conflict",
+  "subjects": [
+    "t96",
+    "t109"
+  ],
+  "forced": false
+}

@@ -11,7 +11,9 @@
 //! each other converge instead of disagreeing forever about which task is
 //! `t20`. Ids that collide are renumbered in that order and the map is
 //! reported; a field changed differently on both sides is a conflict,
-//! resolved only by `--prefer`; a replayed event names its original in
+//! resolved only by `--prefer`, and so, in both modes, is a task whose
+//! status events on the two sides leave it in different statuses; a
+//! replayed event names its original in
 //! `replayed_from`, which is how a copy knows what it already holds.
 //!
 //! The shared-line merge (`--upstream`, and whatever reaches a keyed store
@@ -20,12 +22,14 @@
 //! copy's events that are not on it (by hash or by the original they stand
 //! for) are replayed after it, in our order. Nothing on their line moves:
 //! our new tasks take the next positions, and every number of ours that
-//! moved, and every leaf whose status changed on both sides, is reported.
+//! moved, and every task whose status changed on both sides and was
+//! settled (the same on both, or by `--prefer`), is reported.
 
 use crate::commands::{done, json_mode, say, store_open};
 use crate::commit::{self, Commit};
 use crate::model::*;
 use crate::plan::{id_number, is_keyed_id, Plan};
+use crate::state::{set_by, Status};
 use crate::store::{Lock, Store};
 use anyhow::{anyhow, bail, Context as _, Result};
 use serde_json::json;
@@ -80,13 +84,14 @@ pub struct Outcome {
     pub swapped: Option<String>,
 }
 
-/// A leaf whose status changed on both sides of a shared-line merge.
+/// A task whose status changed on both sides of a shared-line merge and
+/// was settled: the same status on both sides, or by `--prefer`.
 pub struct Both {
     pub id: TaskId,
     /// The status it ends in on the merged line.
     pub ends: &'static str,
-    /// Whether our status event, which stands because it is replayed after
-    /// theirs, is the older of the two.
+    /// Whether the status event that stands (ours, unless theirs was
+    /// preferred) is the older of the two.
     pub older_stands: bool,
     pub text: String,
 }
@@ -402,8 +407,76 @@ impl Replay {
     }
 }
 
-fn is_status(kind: EventKind) -> bool {
-    matches!(kind, EventKind::Started | EventKind::Paused | EventKind::Completed | EventKind::Uncompleted | EventKind::Dropped | EventKind::FlaggedAsSpike | EventKind::Closed | EventKind::Reopened)
+/// What one side's status events since the fork leave each task they name
+/// in: the status its last such event sets, that event's kind and time.
+type Sets = BTreeMap<TaskId, (Status, EventKind, String)>;
+
+fn sets<'a>(evs: impl Iterator<Item = &'a Event>) -> Sets {
+    let mut m = Sets::new();
+    for e in evs {
+        if let Some(st) = set_by(e.kind) {
+            for s in &e.subjects {
+                m.insert(s.clone(), (st, e.kind, e.time.clone()));
+            }
+        }
+    }
+    m
+}
+
+/// A task (by its id on the merged line) that a status event names on both
+/// sides since the fork: our last one and theirs.
+struct Pair {
+    id: TaskId,
+    ours: (Status, EventKind, String),
+    theirs: (Status, EventKind, String),
+    /// Which side `--prefer` made stand, when the two disagree.
+    preferred: Option<Side>,
+}
+
+impl Pair {
+    fn agree(&self) -> bool {
+        self.ours.0 == self.theirs.0
+    }
+    /// How the two sides' statuses were settled, for the report.
+    fn how(&self) -> String {
+        match self.preferred {
+            Some(s) => format!("{} preferred", s.name()),
+            None => "the same on both sides".to_string(),
+        }
+    }
+}
+
+/// The status rule: a task whose status changed on both sides since the
+/// fork, and which the two sides leave in different statuses, is a
+/// conflict, like a field changed differently on both sides. Both sides
+/// leaving it in the same status (both completed) is not. With `--prefer`,
+/// the other side's status events in `staged` stop naming the task (each
+/// event stays, so the original it stands for is still on the line), and
+/// the preferred side's status stands. Returns every pair, settled or not;
+/// conflicts go to `conflicts`, resolutions to `resolved`.
+fn settle_status(ours: &Sets, theirs: &Sets, prefer: Option<Side>, staged: &mut [(Item, Event, Plan)], plan: &Plan, conflicts: &mut Vec<String>, resolved: &mut usize) -> Vec<Pair> {
+    let say = |s: &(Status, EventKind, String)| format!("{}, {} at {}", s.0.name(), s.1.name(), s.2);
+    let mut pairs = Vec::new();
+    for (id, o) in ours {
+        let Some(t) = theirs.get(id) else { continue };
+        let mut p = Pair { id: id.clone(), ours: o.clone(), theirs: t.clone(), preferred: None };
+        if !p.agree() {
+            match prefer {
+                None => conflicts.push(format!("{}: status (ours {}; theirs {})", plan.label(id), say(o), say(t))),
+                Some(win) => {
+                    for (item, ev, _) in staged.iter_mut() {
+                        if item.side != win && set_by(ev.kind).is_some() {
+                            ev.subjects.retain(|s| s != id);
+                        }
+                    }
+                    p.preferred = Some(win);
+                    *resolved += 1;
+                }
+            }
+        }
+        pairs.push(p);
+    }
+    pairs
 }
 
 /// An event that adds scope under its first subject.
@@ -526,15 +599,22 @@ fn perform_canonical(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run
     let start_snap = store.read_snapshot(&start_ev.snapshot).with_context(|| format!("event {}", &start_hash[..10]))?;
     let plan = Plan::load(store, &start_snap)?;
     let mut rp = Replay::new(plan, prefer, false);
-    let staged = stage(store, &mut rp, all.drain(keep..).collect(), &mut out)?;
+    let mut staged = stage(store, &mut rp, all.drain(keep..).collect(), &mut out)?;
     refuse_clash(&rp, &base)?;
+    // Status changed on both sides. The kept prefix is ours, with final ids
+    // already, and before every event of theirs; staged subjects are mapped.
+    let our_sets = sets(all.iter().map(|i| &i.ev).chain(staged.iter().filter(|(i, _, _)| i.side == Side::Ours).map(|(_, e, _)| e)));
+    let their_sets = sets(staged.iter().filter(|(i, _, _)| i.side == Side::Theirs).map(|(_, e, _)| e));
+    let pairs = settle_status(&our_sets, &their_sets, prefer, &mut staged, &rp.plan, &mut rp.conflicts, &mut rp.resolved);
+    for p in &pairs {
+        if p.agree() || p.preferred.is_some() {
+            out.both_touched.push(format!("{}: ours {} at {}, theirs {} at {}; {}", rp.plan.label(&p.id), p.ours.1.name(), p.ours.2, p.theirs.1.name(), p.theirs.2, p.how()));
+        }
+    }
     out.conflicts = rp.conflicts.clone();
     out.resolved = rp.resolved;
     out.renumbered = rp.renumbered.clone();
     out.replayed = staged.iter().map(|(i, _, _)| (i.hash.clone(), String::new())).collect();
-    // Leaves with status events on both sides: the later one stands. The
-    // kept prefix is ours, with final ids already; staged subjects are mapped.
-    let mut touched: HashMap<TaskId, (Side, EventKind, String)> = HashMap::new();
     let kept: Vec<(Side, &Event)> = all.iter().map(|i| (i.side, &i.ev)).collect();
     let later: Vec<(Side, &Event)> = staged.iter().map(|(i, e, _)| (i.side, e)).collect();
     // A close on one side and scope gained under the same task on the
@@ -552,17 +632,6 @@ fn perform_canonical(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run
             if let Some(p) = ev.subjects.first() {
                 gained_on.push((side, p.clone(), ev.subjects[1..].to_vec()));
             }
-        }
-        if !is_status(ev.kind) {
-            continue;
-        }
-        for s in &ev.subjects {
-            if let Some((prev, k, t)) = touched.get(s) {
-                if *prev != side {
-                    out.both_touched.push(format!("{}: {} {} at {}, then {} {} at {}; the later stands", rp.plan.label(s), prev.name(), k.name(), t, side.name(), ev.kind.name(), ev.time));
-                }
-            }
-            touched.insert(s.clone(), (side, ev.kind, ev.time.clone()));
         }
     }
     for (cs, task, time) in &closed_on {
@@ -759,41 +828,34 @@ fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run:
         }
     }
     let mut rp = Replay::new(store.load_plan(their_snap)?, prefer, true);
-    let staged = stage(store, &mut rp, our_seg, &mut out)?;
+    let mut staged = stage(store, &mut rp, our_seg, &mut out)?;
     refuse_clash(&rp, &base)?;
+    // Status changed on both sides: their ids are the merged line's, and our
+    // staged subjects are mapped to it. Unsettled, ours would stand only
+    // because it is replayed after theirs, so a disagreement is a conflict.
+    let their_sets = sets(their_new.iter().copied());
+    let our_sets = sets(staged.iter().map(|(_, e, _)| e));
+    let pairs = settle_status(&our_sets, &their_sets, prefer, &mut staged, &rp.plan, &mut rp.conflicts, &mut rp.resolved);
     out.conflicts = rp.conflicts.clone();
     out.resolved = rp.resolved;
     out.renumbered = rp.renumbered.clone();
     out.replayed = staged.iter().map(|(i, _, _)| (i.hash.clone(), String::new())).collect();
     out.moved = moved(&before, &rp.plan, &rp.tmap);
-    // Status on both sides: ours is replayed after theirs, so ours stands,
-    // whichever is older. Say what it ends in.
-    let last = |evs: &mut dyn Iterator<Item = &Event>| -> BTreeMap<TaskId, (EventKind, String)> {
-        let mut m = BTreeMap::new();
-        for e in evs.filter(|e| is_status(e.kind)) {
-            for s in &e.subjects {
-                m.insert(s.clone(), (e.kind, e.time.clone()));
-            }
-        }
-        m
-    };
-    let their_last = last(&mut their_new.iter().copied());
-    let our_last = last(&mut staged.iter().map(|(_, e, _)| e));
+    // Say what each task touched on both sides ends in, and whether the
+    // event that stands is the older one.
     let mut ends = crate::state::leaf_statuses(&their_hist);
     for (_, e, _) in &staged {
         crate::state::apply_event(&mut ends, e);
     }
-    for (id, (ok, ot)) in &our_last {
-        if let Some((tk, tt)) = their_last.get(id) {
-            let end = ends.get(id).map(|s| s.name()).unwrap_or("todo");
-            let older = ot < tt;
-            out.both.push(Both {
-                id: id.clone(),
-                ends: end,
-                older_stands: older,
-                text: format!("{} ends {} (ours {} {}, theirs {} {}; the {} event stands)", id, end, ok.name(), ot, tk.name(), tt, if older { "older" } else { "later" }),
-            });
-        }
+    for p in pairs.iter().filter(|p| p.agree() || p.preferred.is_some()) {
+        let end = ends.get(&p.id).map(|s| s.name()).unwrap_or("todo");
+        let (stands, other) = if p.preferred == Some(Side::Theirs) { (&p.theirs.2, &p.ours.2) } else { (&p.ours.2, &p.theirs.2) };
+        out.both.push(Both {
+            id: p.id.clone(),
+            ends: end,
+            older_stands: stands < other,
+            text: format!("{} ends {} (ours {} {}, theirs {} {}; {})", p.id, end, p.ours.1.name(), p.ours.2, p.theirs.1.name(), p.theirs.2, p.how()),
+        });
     }
     if !out.conflicts.is_empty() || dry_run {
         return Ok(out);

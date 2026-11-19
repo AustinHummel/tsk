@@ -91,21 +91,55 @@ merge:
   their line is the authority.
 - Field conflicts stop it as now; `--prefer` as now.
 
-**Status on both sides: report, do not stop.** Status is derived by
-walking the chain oldest first (`state.rs:80-87`), not by time, so after
-a shared-line merge our status event stands even when it is older than
-theirs. The 0.6.0 sentence "the later stands" (`merge.rs:517`) would be
-false here; this mode says which status the task ends in and whether an
-older event produced it.
+**Status on both sides: a conflict** (replaced 2026-11-19, after the
+blind review; the first design reported it and let replay order decide).
+Status is derived by walking the chain oldest first (`state.rs:80-87`),
+not by time, so after a shared-line merge our status event stood even
+when it was older than theirs: an unpublished `start` replayed after a
+published `complete` reopened the task for everyone. Austin, 2026-11-19:
+"This sounds like standard merge conflict if I understand correctly. If
+that's the case it should be up to the agent handling the merge to
+figure out how it should be resolved on a case-by-case basis."
+
+- *Status changed on a side* means a status event since the fork names
+  the task: `start`, `pause`, `complete`, `uncomplete`, `drop`, `spike`,
+  `close`, `reopen` (`state::set_by`, which `apply_event` folds). The
+  status that side leaves it in is the one its last such event sets.
+  A side that started and paused it has changed it, even back to where
+  it was. The structural events that end a leaf's own status
+  (`breakdown`, `amend`, `adopt`, `apply`) are not status changes; a
+  close against scope gained on the other side is reported as before.
+- Changed on both sides to different statuses is a conflict, handled as
+  a field conflict is: nothing written, each task named with both
+  sides' status, kind and time, the way out `--prefer`; through git the
+  pending marker stays, a write refuses and a read shows our side until
+  `tsk merge --prefer` settles it. The same status on both sides (both
+  completed; `close` and `complete` both mean complete) is not.
+- `--prefer` keeps every event and removes the task from the losing
+  side's replayed status events (an event may name no task after that),
+  so the preferred side's status stands and each original is still on
+  the line by `replayed_from`.
+- Tasks are compared by their id on the merged line (our subjects
+  mapped), so an unkeyed id renamed by the merge is not taken for theirs.
+- **The canonical merge follows the same rule.** It replaced "the later
+  stands": the later event by the clock is the same silent override (a
+  copy that starts a task it has not seen completed reopens it), and the
+  rule is Austin's for a both-sides change, not for one mode. As with a
+  field conflict there, a copy that merges the other's resolution may be
+  asked again for the same task.
 
 **The report.** Text, `--json`, and the `Merged` event's message all
 carry it:
 
 - `moved: t5m 3 -> 4` for each task on our pre-merge plan whose outline
   number differs on the merged plan (JSON `moved: [{id, from, to}]`).
-- `status on both sides: t7 ends in-progress (ours started 10:02, theirs
-  completed 10:40; the older event stands)` (JSON `both_touched` gains
-  `id`, `ends`, `older_stands`).
+- For each task whose status changed on both sides and was settled:
+  `status on both sides: t7 ends complete (ours started 10:02, theirs
+  completed 10:40; theirs preferred)`, or `; ours preferred`, or `; the
+  same on both sides` (JSON `both_touched` gains `id`, `ends`, and
+  `older_stands`: whether the event that stands is the older). One that
+  is not settled is a conflict: `1.1 t7 Build: status (ours
+  in-progress, started at 10:02; theirs complete, completed at 10:40)`.
 - renames and resolutions, as 0.6.0.
 
 **The pending marker.** Both early returns (`merge.rs:377-380`,

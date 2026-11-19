@@ -161,16 +161,22 @@ fn a_field_changed_on_both_sides_is_a_conflict_until_preferred() {
     assert!(s12.contains("Build a CLI (alice)") && s12.contains("a body only bob set"), "disjoint fields merge: {}", s12);
     assert!(a.fails(&["show", "r2"]).contains("no task") || !a.ok(&["show", "1.3"]).contains("r2 "), "r2 removed as theirs preferred");
     assert!(a.ok(&["log", "-n", "1"]).contains("resolved preferring theirs"));
-    // Status on both sides is reported, and theirs stands.
+    // A status changed differently on both sides is a conflict too, in the
+    // canonical merge as in the shared-line one: the later event does not
+    // simply stand.
     let c = Proj::new("conflict-c");
     copy_store(&a.dir, &c.dir);
     a.ok(&["complete", "1.1"]);
     std::thread::sleep(std::time::Duration::from_millis(1100));
     c.ok(&["start", "1.1"]);
     bring_objects(&c.dir, &a.dir);
-    let out = a.ok(&["merge", &head(&c)]);
-    assert!(out.contains("status on both sides") && out.contains("the later stands"), "{}", out);
-    assert!(a.ok(&["plan"]).contains("[>] 1.1"), "chronological: the later start stands");
+    let h = head(&a);
+    let msg = a.fails(&["merge", &head(&c)]);
+    assert!(msg.contains("1.1 t2 ") && msg.contains("status (ours complete, completed at ") && msg.contains("; theirs in-progress, started at ") && msg.contains("nothing was written"), "{}", msg);
+    assert_eq!(head(&a), h, "nothing written");
+    let out = a.ok(&["merge", &head(&c), "--prefer", "theirs"]);
+    assert!(out.contains("status on both sides: 1.1 t2 ") && out.contains("; theirs preferred"), "{}", out);
+    assert!(a.ok(&["plan"]).contains("[>] 1.1"), "theirs preferred: the start stands");
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -314,7 +320,8 @@ fn closed_and_reopened_replay_in_a_merge() {
     let plan = a.ok(&["plan"]);
     assert!(plan.contains("[>] 1 t1 Run") && plan.contains("[ ] 1.2 t3 New"), "{}", plan);
     assert!(a.ok(&["log", "-n", "4"]).contains("closed"), "the close is on the merged line");
-    // A close on one side against a reopen on the other is reported as status on both sides.
+    // A reopen on one side against a reopen and a close on the other is a
+    // status conflict: close and reopen move status as complete and uncomplete do.
     a.ok(&["complete", "1.2"]);
     a.ok(&["close", "1", "done again"]);
     let c = Proj::new("close-c");
@@ -324,9 +331,11 @@ fn closed_and_reopened_replay_in_a_merge() {
     c.ok(&["reopen", "1"]);
     c.ok(&["close", "1", "shut"]);
     bring_objects(&c.dir, &a.dir);
-    let out = a.ok(&["merge", &head(&c)]);
-    assert!(out.contains("status on both sides: 1 t1 Run: ours reopened at") && out.contains("then theirs reopened"), "{}", out);
-    assert!(a.ok(&["plan", "-a"]).contains("[x] 1 t1 Run"), "the later close stands");
+    let msg = a.fails(&["merge", &head(&c)]);
+    assert!(msg.contains("1 t1 Run: status (ours todo, reopened at ") && msg.contains("; theirs complete, closed at "), "{}", msg);
+    let out = a.ok(&["merge", &head(&c), "--prefer", "theirs"]);
+    assert!(out.contains("status on both sides: 1 t1 Run: ours reopened at") && out.contains(", theirs closed at ") && out.contains("theirs preferred"), "{}", out);
+    assert!(a.ok(&["plan", "-a"]).contains("[x] 1 t1 Run"), "theirs preferred: the close stands");
 }
 
 // ----- 0.7: writer keys -----------------------------------------------------
@@ -515,29 +524,64 @@ fn the_report_names_every_number_of_ours_that_moved() {
 }
 
 #[test]
-fn status_on_both_sides_is_reported_with_the_status_it_ends_in() {
+fn a_status_changed_on_both_sides_is_a_conflict_until_preferred() {
+    // The blind review's case: a published complete, and an older start
+    // not yet published, which replayed after it used to reopen the task.
     let (a, b) = pair("both-status", Some(("p", "m")));
-    a.ok(&["start", "1.1"]); // older
+    a.ok(&["start", "1.1"]); // older, unpublished
     later();
     b.ok(&["complete", "1.1"]); // newer, published
     bring_objects(&b.dir, &a.dir);
-    let out = a.ok(&["merge", &head(&b), "--upstream"]);
-    assert!(
-        out.contains("status on both sides: t2 ends in-progress (ours started ") && out.contains(", theirs completed ") && out.contains("; the older event stands)"),
-        "reported, not stopped:\n{}",
-        out
-    );
-    assert!(a.ok(&["plan"]).contains("[>] 1.1"), "ours replays after theirs, so it stands");
-    assert!(a.ok(&["log", "-n", "1"]).contains("t2 ends in-progress"), "in the merge event's message");
-    // JSON, on a fresh pair the other way round: ours is the later event.
-    let (c, d) = pair("both-status-json", Some(("p", "m")));
-    d.ok(&["start", "1.1"]);
-    later();
-    c.ok(&["complete", "1.1"]);
-    bring_objects(&d.dir, &c.dir);
-    let js: serde_json::Value = serde_json::from_str(&c.ok(&["--json", "merge", &head(&d), "--upstream"])).unwrap();
+    let theirs = head(&b);
+    let a2 = Proj::new("both-status-ours2");
+    copy_store(&a.dir, &a2.dir);
+    let (h, revs) = (head(&a), a.ok(&["rev-list"]));
+    for args in [vec!["merge", theirs.as_str(), "--upstream"], vec!["merge", theirs.as_str(), "--upstream", "--dry-run"]] {
+        let msg = a.fails(&args);
+        assert!(
+            msg.contains("conflicts") && msg.contains("1.1 t2 ") && msg.contains("status (ours in-progress, started at ") && msg.contains("; theirs complete, completed at "),
+            "{}",
+            msg
+        );
+        assert!(msg.contains("nothing was written") && msg.contains("--prefer ours or --prefer theirs"), "{}", msg);
+        assert_eq!((head(&a), a.ok(&["rev-list"])), (h.clone(), revs.clone()), "nothing written");
+    }
+    assert!(a.ok(&["plan"]).contains("[>] 1.1"), "our side, untouched");
+    // Theirs preferred: the published complete stands.
+    let js: serde_json::Value = serde_json::from_str(&a.ok(&["--json", "merge", &theirs, "--upstream", "--prefer", "theirs"])).unwrap();
+    assert_eq!(js["resolved"].as_u64(), Some(1), "{}", js);
     let bt = &js["both_touched"][0];
     assert_eq!((bt["id"].as_str(), bt["ends"].as_str(), bt["older_stands"].as_bool()), (Some("t2"), Some("complete"), Some(false)), "{}", js);
+    assert!(a.ok(&["plan", "-a"]).contains("[x] 1.1"), "{}", a.ok(&["plan", "-a"]));
+    let log = a.ok(&["log", "-n", "1"]);
+    assert!(log.contains("t2 ends complete") && log.contains("theirs preferred") && log.contains("resolved preferring theirs"), "{}", log);
+    let shared = b.ok(&["rev-list"]);
+    assert!(a.ok(&["rev-list"]).ends_with(&shared), "the shared line kept");
+    // Ours preferred: the start stands.
+    let out = a2.ok(&["merge", &theirs, "--upstream", "--prefer", "ours"]);
+    assert!(out.contains("status on both sides: t2 ends in-progress (ours started ") && out.contains(", theirs completed ") && out.contains("; ours preferred)"), "{}", out);
+    assert!(a2.ok(&["plan"]).contains("[>] 1.1"));
+}
+
+#[test]
+fn the_same_status_on_both_sides_merges_cleanly() {
+    let (a, b) = pair("same-status", Some(("p", "m")));
+    a.ok(&["complete", "1.1"]);
+    later();
+    b.ok(&["complete", "1.1"]);
+    bring_objects(&b.dir, &a.dir);
+    let out = a.ok(&["merge", &head(&b), "--upstream"]);
+    assert!(out.contains("status on both sides: t2 ends complete (ours completed ") && out.contains("; the same on both sides)"), "{}", out);
+    assert!(a.ok(&["plan", "-a"]).contains("[x] 1.1"));
+    // The canonical merge of an unkeyed store: the same.
+    let (c, d) = pair("same-status-canon", None);
+    c.ok(&["start", "1.1"]);
+    later();
+    d.ok(&["start", "1.1"]);
+    bring_objects(&d.dir, &c.dir);
+    let out = c.ok(&["merge", &head(&d)]);
+    assert!(out.contains("status on both sides: 1.1 t2 ") && out.contains("; the same on both sides"), "{}", out);
+    assert!(c.ok(&["plan"]).contains("[>] 1.1"));
 }
 
 #[test]
@@ -749,6 +793,34 @@ fn the_driver_path_on_a_keyed_store_keeps_theirs() {
     let (ok, text) = m.tsk(&mac, &["plan"]);
     assert!(ok && text.contains("1.5 t5p pc's piece"), "{}", text);
     assert_eq!(head(&mac), head(&pc));
+    let _ = std::fs::remove_dir_all(&pc.dir);
+}
+
+#[test]
+fn a_status_conflict_through_git_waits_for_prefer() {
+    let m = Machine::new("driver-status");
+    let (mac, pc) = m.pair("driver-status", true);
+    pc.ok(&["start", "1.1"]); // older, unpublished
+    m.commit(&pc.dir, "pc");
+    later();
+    mac.ok(&["complete", "1.1"]); // newer, on the shared line
+    m.commit(&mac.dir, "mac");
+    let shared = mac.ok(&["rev-list"]);
+    m.ok(&pc.dir, &["fetch", "-q"]);
+    let out = m.ok(&pc.dir, &["merge", "--no-edit", "origin/main"]);
+    assert!(!out.contains("CONFLICT"), "{}", out);
+    let (ok, text) = m.tsk(&pc, &["add", "another", "--by", "PC: more"]);
+    assert!(!ok && text.contains("pending with 1 conflict(s)") && text.contains("--prefer ours|theirs"), "a write is refused:\n{}", text);
+    assert!(pc.read(".tasks/HEAD").lines().nth(1).unwrap_or("").starts_with("merge "), "the pending marker is kept");
+    let (ok, text) = m.tsk(&pc, &["plan"]);
+    assert!(ok && text.contains("pending") && text.contains("[>] 1.1"), "a read warns and shows our side:\n{}", text);
+    let (ok, text) = m.tsk(&pc, &["merge", "--dry-run"]);
+    assert!(!ok && text.contains("1.1 t2 ") && text.contains("status (ours in-progress, started at ") && text.contains("theirs complete, completed at "), "{}", text);
+    let (ok, text) = m.tsk(&pc, &["merge", "--prefer", "theirs"]);
+    assert!(ok && text.contains("t2 ends complete") && text.contains("theirs preferred"), "{}", text);
+    assert_eq!(pc.read(".tasks/HEAD").lines().count(), 1, "settled");
+    assert!(pc.ok(&["plan", "-a"]).contains("[x] 1.1"));
+    assert!(pc.ok(&["rev-list"]).ends_with(&shared), "the shared line, hash for hash");
     let _ = std::fs::remove_dir_all(&pc.dir);
 }
 
