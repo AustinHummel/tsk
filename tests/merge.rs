@@ -1443,7 +1443,8 @@ fn a_cherry_picked_event_whose_parent_is_absent_names_the_way_out() {
     pc.ok(&["add", "main's", "--by", "PC: work"]);
     pc.ok(&["key", "p"]);
     m.commit(&pc.dir, "main's");
-    m.ok(&pc.dir, &["cherry-pick", "feat"]);
+    // Object folders are named by hash: git's directory-rename guess must not move them.
+    m.ok(&pc.dir, &["-c", "merge.directoryRenames=false", "cherry-pick", "feat"]);
     let marker = pc.read(".tasks/HEAD");
     assert!(marker.contains("\nmerge "), "{}", marker);
     let (ok, text) = m.tsk(&pc, &["add", "more", "--by", "PC: more"]);
@@ -1455,7 +1456,7 @@ fn a_cherry_picked_event_whose_parent_is_absent_names_the_way_out() {
     assert_eq!(pc.read(".tasks/HEAD"), marker, "nothing written");
     let (ok, text) = m.tsk(&pc, &["merge"]);
     assert!(!ok && text.contains("git reset --keep HEAD~1"), "tsk merge too:\n{}", text);
-    m.ok(&pc.dir, &["merge", "--no-edit", "feat"]);
+    m.ok(&pc.dir, &["-c", "merge.directoryRenames=false", "merge", "--no-edit", "feat"]);
     let (ok, text) = m.tsk(&pc, &["add", "more", "--by", "PC: more"]);
     assert!(ok, "{}", text);
     let plan = pc.ok(&["plan"]);
