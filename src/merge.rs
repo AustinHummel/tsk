@@ -13,6 +13,14 @@
 //! reported; a field changed differently on both sides is a conflict,
 //! resolved only by `--prefer`; a replayed event names its original in
 //! `replayed_from`, which is how a copy knows what it already holds.
+//!
+//! The shared-line merge (`--upstream`, and whatever reaches a keyed store
+//! through git) is the other mode: the other HEAD is the line every copy
+//! has seen, so it is kept event for event, same hashes, and only this
+//! copy's events that are not on it (by hash or by the original they stand
+//! for) are replayed after it, in our order. Nothing on their line moves:
+//! our new tasks take the next positions, and every number of ours that
+//! moved, and every leaf whose status changed on both sides, is reported.
 
 use crate::commands::{done, json_mode, say, store_open};
 use crate::commit::{self, Commit};
@@ -21,7 +29,7 @@ use crate::plan::{id_number, is_keyed_id, Plan};
 use crate::store::{Lock, Store};
 use anyhow::{anyhow, bail, Context as _, Result};
 use serde_json::json;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Side {
@@ -61,6 +69,23 @@ pub struct Outcome {
     pub both_touched: Vec<String>,
     pub fast_forward: bool,
     pub head: Option<Hash>,
+    /// The shared-line merge: `moved` and `both` are its report.
+    pub upstream: bool,
+    /// (our id, outline number before, after) for each task of our
+    /// pre-merge plan whose number differs on the merged plan.
+    pub moved: Vec<(TaskId, String, String)>,
+    pub both: Vec<Both>,
+}
+
+/// A leaf whose status changed on both sides of a shared-line merge.
+pub struct Both {
+    pub id: TaskId,
+    /// The status it ends in on the merged line.
+    pub ends: &'static str,
+    /// Whether our status event, which stands because it is replayed after
+    /// theirs, is the older of the two.
+    pub older_stands: bool,
+    pub text: String,
 }
 
 /// One event to replay: its identity (the original event it stands for),
@@ -84,6 +109,9 @@ struct Replay {
     renumbered: Vec<(Side, String, String)>,
     /// A keyed id made on both sides: the merge is refused.
     clash: Option<String>,
+    /// The shared-line merge: a task of ours that keeps its id still takes
+    /// the next position from the merged counter.
+    upstream: bool,
 }
 
 impl Replay {
@@ -171,6 +199,9 @@ impl Replay {
             }
             if num > self.plan.next_task {
                 self.plan.next_task = num;
+                if self.upstream {
+                    nt.seq = num;
+                }
             } else {
                 self.plan.next_task += 1;
                 nt.seq = self.plan.next_task;
@@ -187,6 +218,9 @@ impl Replay {
             self.renumbered.push((self.side, t.id.clone(), nt.id.clone()));
         } else if num > self.plan.next_task {
             self.plan.next_task = num;
+            if self.upstream {
+                nt.seq = num;
+            }
         }
         nt.parent = t.parent.as_deref().map(|p| self.t(p));
         nt.core_of = t.core_of.as_deref().map(|p| self.t(p));
@@ -387,7 +421,15 @@ fn identity(h: &Hash, ev: &Event) -> Hash {
 /// Perform the merge of `theirs` into the store's HEAD. The caller holds
 /// the lock. Writes nothing when there are unresolved conflicts or on a
 /// dry run.
-pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool) -> Result<Outcome> {
+pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool, upstream: bool) -> Result<Outcome> {
+    if upstream {
+        perform_upstream(store, theirs, prefer, dry_run)
+    } else {
+        perform_canonical(store, theirs, prefer, dry_run)
+    }
+}
+
+fn perform_canonical(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool) -> Result<Outcome> {
     let mut out = Outcome::default();
     let ours = store.head()?.ok_or_else(|| anyhow!("no HEAD"))?;
     if !store.has_object(theirs) {
@@ -478,43 +520,9 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
     let start_ev: Event = store.read_object(ObjectType::Event, &start_hash)?;
     let start_snap = store.read_snapshot(&start_ev.snapshot).with_context(|| format!("event {}", &start_hash[..10]))?;
     let plan = Plan::load(store, &start_snap)?;
-    let mut rp = Replay { plan, side: Side::Ours, tmap: HashMap::new(), rmap: HashMap::new(), prefer, conflicts: Vec::new(), resolved: 0, renumbered: Vec::new(), clash: None };
-    let mut staged: Vec<(Item, Event, Plan)> = Vec::new();
-    for item in all.drain(keep..) {
-        rp.side = item.side;
-        let parent = item.ev.parent.clone().ok_or_else(|| anyhow!("event {} has no parent", &item.hash[..10]))?;
-        let pev: Event = store.read_object(ObjectType::Event, &parent)?;
-        let pre = store.read_snapshot(&pev.snapshot).with_context(|| format!("event {}", &parent[..10]))?;
-        let post = store.read_snapshot(&item.ev.snapshot).with_context(|| format!("event {}", &item.hash[..10]))?;
-        if pre != post {
-            rp.apply(store, &pre, &post, &format!("{} {} ({})", item.side.name(), &item.hash[..10], item.ev.kind.name()))?;
-        }
-        let replayed = Event {
-            kind: item.ev.kind,
-            parent: None,
-            snapshot: String::new(),
-            time: item.ev.time.clone(),
-            author: item.ev.author.clone(),
-            message: item.ev.message.clone(),
-            subjects: item.ev.subjects.iter().map(|s| rp.t(s)).collect(),
-            group: item.ev.group.iter().map(|s| rp.t(s)).collect(),
-            forced: item.ev.forced,
-            replayed_from: Some(item.id.clone()),
-        };
-        if item.side == Side::Ours {
-            out.ours_rewritten += 1;
-        }
-        staged.push((item, replayed, rp.plan.clone()));
-    }
-    if let Some(id) = &rp.clash {
-        let key: String = id.chars().skip_while(|c| !c.is_ascii_digit()).skip_while(|c| c.is_ascii_digit()).collect();
-        bail!(
-            "{} was made on both copies, which share the key `{}`, and a keyed id is never renamed, so nothing was written: on one copy choose a key no other copy uses (`tsk key <letters>`), `tsk reset {}` there to undo its work since the fork, add that work again, and merge",
-            id,
-            key,
-            &base[..10]
-        );
-    }
+    let mut rp = Replay::new(plan, prefer, false);
+    let staged = stage(store, &mut rp, all.drain(keep..).collect(), &mut out)?;
+    refuse_clash(&rp, &base)?;
     out.conflicts = rp.conflicts.clone();
     out.resolved = rp.resolved;
     out.renumbered = rp.renumbered.clone();
@@ -567,15 +575,7 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
     // claim on our HEAD comes first, so nothing is written if another
     // process has advanced it meanwhile.
     store.claim(&ours)?;
-    let mut prev = start_hash.clone();
-    out.replayed.clear();
-    for (item, mut ev, plan) in staged {
-        ev.parent = Some(prev.clone());
-        ev.snapshot = plan.save(store)?;
-        let h = store.write_object(ObjectType::Event, &ev)?;
-        out.replayed.push((item.hash, h.clone()));
-        prev = h;
-    }
+    let prev = write_staged(store, staged, &start_hash, &mut out)?;
     store.set_head(&prev)?;
     let mut msg = format!("merge {} (from {}): {} event(s) replayed", &theirs[..10], &ours[..10], out.replayed.len());
     if out.ours_rewritten > 0 {
@@ -597,19 +597,247 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
     Ok(out)
 }
 
+impl Replay {
+    fn new(plan: Plan, prefer: Option<Side>, upstream: bool) -> Replay {
+        Replay { plan, side: Side::Ours, tmap: HashMap::new(), rmap: HashMap::new(), prefer, conflicts: Vec::new(), resolved: 0, renumbered: Vec::new(), clash: None, upstream }
+    }
+}
+
+/// Replay each item onto the plan in `rp`, in the order given: the merged
+/// plan after each one, and the event that will stand for it (no parent or
+/// snapshot yet; ids mapped; `replayed_from` naming the original).
+fn stage(store: &Store, rp: &mut Replay, items: Vec<Item>, out: &mut Outcome) -> Result<Vec<(Item, Event, Plan)>> {
+    let mut staged: Vec<(Item, Event, Plan)> = Vec::new();
+    for item in items {
+        rp.side = item.side;
+        let parent = item.ev.parent.clone().ok_or_else(|| anyhow!("event {} has no parent", &item.hash[..10]))?;
+        let pev: Event = store.read_object(ObjectType::Event, &parent)?;
+        let pre = store.read_snapshot(&pev.snapshot).with_context(|| format!("event {}", &parent[..10]))?;
+        let post = store.read_snapshot(&item.ev.snapshot).with_context(|| format!("event {}", &item.hash[..10]))?;
+        if pre != post {
+            rp.apply(store, &pre, &post, &format!("{} {} ({})", item.side.name(), &item.hash[..10], item.ev.kind.name()))?;
+        }
+        let replayed = Event {
+            kind: item.ev.kind,
+            parent: None,
+            snapshot: String::new(),
+            time: item.ev.time.clone(),
+            author: item.ev.author.clone(),
+            message: item.ev.message.clone(),
+            subjects: item.ev.subjects.iter().map(|s| rp.t(s)).collect(),
+            group: item.ev.group.iter().map(|s| rp.t(s)).collect(),
+            forced: item.ev.forced,
+            replayed_from: Some(item.id.clone()),
+        };
+        if item.side == Side::Ours {
+            out.ours_rewritten += 1;
+        }
+        staged.push((item, replayed, rp.plan.clone()));
+    }
+    Ok(staged)
+}
+
+/// A keyed id made on both copies refuses the merge, nothing written.
+fn refuse_clash(rp: &Replay, base: &Hash) -> Result<()> {
+    if let Some(id) = &rp.clash {
+        let key: String = id.chars().skip_while(|c| !c.is_ascii_digit()).skip_while(|c| c.is_ascii_digit()).collect();
+        bail!(
+            "{} was made on both copies, which share the key `{}`, and a keyed id is never renamed, so nothing was written: on one copy choose a key no other copy uses (`tsk key <letters>`), `tsk reset {}` there to undo its work since the fork, add that work again, and merge",
+            id,
+            key,
+            &base[..10]
+        );
+    }
+    Ok(())
+}
+
+/// Write the staged events in order on top of `start`; the last one's hash.
+fn write_staged(store: &Store, staged: Vec<(Item, Event, Plan)>, start: &Hash, out: &mut Outcome) -> Result<Hash> {
+    let mut prev = start.clone();
+    out.replayed.clear();
+    for (item, mut ev, plan) in staged {
+        ev.parent = Some(prev.clone());
+        ev.snapshot = plan.save(store)?;
+        let h = store.write_object(ObjectType::Event, &ev)?;
+        out.replayed.push((item.hash, h.clone()));
+        prev = h;
+    }
+    Ok(prev)
+}
+
+/// Each task of our plan before the merge whose outline number differs on
+/// the merged plan (followed through a rename of ours).
+fn moved(before: &Plan, after: &Plan, tmap: &HashMap<(Side, TaskId), TaskId>) -> Vec<(TaskId, String, String)> {
+    let (b, a) = (before.numbering(), after.numbering());
+    let mut v: Vec<(TaskId, String, String)> = b
+        .iter()
+        .filter_map(|(id, from)| {
+            let now = tmap.get(&(Side::Ours, id.clone())).unwrap_or(id);
+            let to = a.get(now)?;
+            (to != from).then(|| (id.clone(), from.clone(), to.clone()))
+        })
+        .collect();
+    v.sort_by_key(|(id, _, _)| (id_number(id), id.clone()));
+    v
+}
+
+/// The shared-line merge. `theirs` is the line every copy has seen: it is
+/// kept event for event, same hashes. Our events since the fork that are
+/// not on it, by hash or by the original they stand for, are replayed after
+/// its head in our order, then one `Merged` event. Nothing of ours left is
+/// a fast-forward to their head.
+fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool) -> Result<Outcome> {
+    let mut out = Outcome { upstream: true, ..Outcome::default() };
+    let ours = store.head()?.ok_or_else(|| anyhow!("no HEAD"))?;
+    if !store.has_object(theirs) {
+        bail!("event {} is not in this store (fetch or pull first: the objects arrive with git)", &theirs[..10]);
+    }
+    let our_hist = store.history_from(Some(ours.clone()))?;
+    let our_hashes: HashSet<&Hash> = our_hist.iter().map(|(h, _)| h).collect();
+    // Their line is the authority: their head on ours by hash, and only by
+    // hash, is already merged.
+    if our_hashes.contains(theirs) {
+        out.head = Some(ours);
+        return Ok(out);
+    }
+    let their_hist = store.history_from(Some(theirs.clone())).context("reading the other history")?;
+    let their_hashes: HashSet<&Hash> = their_hist.iter().map(|(h, _)| h).collect();
+    // Everything their line holds: its events and the originals they stand for.
+    let on_theirs: HashSet<&Hash> = their_hist.iter().flat_map(|(h, e)| std::iter::once(h).chain(e.replayed_from.iter())).collect();
+    let base_idx = our_hist.iter().position(|(h, _)| their_hashes.contains(h)).ok_or_else(|| anyhow!("{} shares no history with this store", &theirs[..10]))?;
+    let base = our_hist[base_idx].0.clone();
+    let our_seg: Vec<Item> = our_hist[..base_idx]
+        .iter()
+        .rev()
+        .filter(|(h, e)| !is_marker(e.kind) && !on_theirs.contains(h) && !on_theirs.contains(&identity(h, e)))
+        .map(|(h, e)| Item { id: identity(h, e), hash: h.clone(), ev: e.clone(), side: Side::Ours })
+        .collect();
+    let before = store.load_plan(&our_hist[0].1.snapshot)?;
+    let their_snap = &their_hist[0].1.snapshot;
+    // Their events since the fork, oldest first, less any that stand for an
+    // event of ours.
+    let have: HashSet<Hash> = our_hist.iter().flat_map(|(h, e)| std::iter::once(h.clone()).chain(e.replayed_from.clone())).collect();
+    let their_new: Vec<&Event> = their_hist.iter().take_while(|(h, _)| !our_hashes.contains(h)).filter(|(h, e)| !have.contains(&identity(h, e))).map(|(_, e)| e).collect::<Vec<_>>().into_iter().rev().collect();
+    if our_seg.is_empty() {
+        out.fast_forward = true;
+        out.head = Some(theirs.clone());
+        out.replayed = their_hist.iter().take_while(|(h, _)| !our_hashes.contains(h)).map(|(h, _)| (h.clone(), h.clone())).collect();
+        let merged = store.load_plan(their_snap)?;
+        out.moved = moved(&before, &merged, &HashMap::new());
+        if !dry_run {
+            store.advance_head(Some(&ours), theirs, &format!("merge {} (fast-forward)", &theirs[..10]))?;
+            let history = store.history()?;
+            store.rebuild_log(&history, &merged)?;
+        }
+        return Ok(out);
+    }
+    // Replay reads each event's own snapshot and its parent's: a prune past
+    // our unpublished work refuses here, before anything is written.
+    for item in &our_seg {
+        let parent = item.ev.parent.clone().ok_or_else(|| anyhow!("event {} has no parent", &item.hash[..10]))?;
+        let pev: Event = store.read_object(ObjectType::Event, &parent)?;
+        if !store.has_object(&pev.snapshot) || !store.has_object(&item.ev.snapshot) {
+            bail!(
+                "event {} of ours, which this merge replays, lost a snapshot to a prune, so nothing was written: restore `.tasks/objects` from a git commit made before the prune (`git checkout <commit> -- .tasks/objects`), then merge again",
+                &item.hash[..10]
+            );
+        }
+    }
+    let mut rp = Replay::new(store.load_plan(their_snap)?, prefer, true);
+    let staged = stage(store, &mut rp, our_seg, &mut out)?;
+    refuse_clash(&rp, &base)?;
+    out.conflicts = rp.conflicts.clone();
+    out.resolved = rp.resolved;
+    out.renumbered = rp.renumbered.clone();
+    out.replayed = staged.iter().map(|(i, _, _)| (i.hash.clone(), String::new())).collect();
+    out.moved = moved(&before, &rp.plan, &rp.tmap);
+    // Status on both sides: ours is replayed after theirs, so ours stands,
+    // whichever is older. Say what it ends in.
+    let last = |evs: &mut dyn Iterator<Item = &Event>| -> BTreeMap<TaskId, (EventKind, String)> {
+        let mut m = BTreeMap::new();
+        for e in evs.filter(|e| is_status(e.kind)) {
+            for s in &e.subjects {
+                m.insert(s.clone(), (e.kind, e.time.clone()));
+            }
+        }
+        m
+    };
+    let their_last = last(&mut their_new.iter().copied());
+    let our_last = last(&mut staged.iter().map(|(_, e, _)| e));
+    let mut ends = crate::state::leaf_statuses(&their_hist);
+    for (_, e, _) in &staged {
+        crate::state::apply_event(&mut ends, e);
+    }
+    for (id, (ok, ot)) in &our_last {
+        if let Some((tk, tt)) = their_last.get(id) {
+            let end = ends.get(id).map(|s| s.name()).unwrap_or("todo");
+            let older = ot < tt;
+            out.both.push(Both {
+                id: id.clone(),
+                ends: end,
+                older_stands: older,
+                text: format!("{} ends {} (ours {} {}, theirs {} {}; the {} event stands)", id, end, ok.name(), ot, tk.name(), tt, if older { "older" } else { "later" }),
+            });
+        }
+    }
+    if !out.conflicts.is_empty() || dry_run {
+        return Ok(out);
+    }
+    store.claim(&ours)?;
+    let prev = write_staged(store, staged, theirs, &mut out)?;
+    store.set_head(&prev)?;
+    let mut msg = format!("merge {} (from {}): shared line kept, {} event(s) of ours replayed after it", &theirs[..10], &ours[..10], out.replayed.len());
+    if !out.renumbered.is_empty() {
+        let maps: Vec<String> = out.renumbered.iter().map(|(s, a, b)| format!("{} {}->{}", s.name(), a, b)).collect();
+        msg.push_str(&format!("; renumbered {}", maps.join(", ")));
+    }
+    if !out.moved.is_empty() {
+        let m: Vec<String> = out.moved.iter().map(|(id, a, b)| format!("{} {}->{}", id, a, b)).collect();
+        msg.push_str(&format!("; moved {}", m.join(", ")));
+    }
+    if !out.both.is_empty() {
+        let b: Vec<&str> = out.both.iter().map(|b| b.text.as_str()).collect();
+        msg.push_str(&format!("; status on both sides: {}", b.join("; ")));
+    }
+    if out.resolved > 0 {
+        msg.push_str(&format!("; {} conflict(s) resolved preferring {}", out.resolved, prefer.map(|p| p.name()).unwrap_or("?")));
+    }
+    let h = commit::write_on(store, &rp.plan, Some(prev.clone()), Commit::new(EventKind::Merged, msg, vec![]))?;
+    store.reflog_append(Some(&ours), &h, &format!("merge {} (shared line): HEAD was {}", &theirs[..10], &ours[..10]))?;
+    let history = store.history()?;
+    store.rebuild_log(&history, &rp.plan)?;
+    out.head = Some(h);
+    Ok(out)
+}
+
 fn report(store: &Store, theirs: &Hash, out: &Outcome, dry_run: bool) {
     if json_mode() {
-        let v = json!({
+        let mut v = json!({
             "theirs": theirs, "head": out.head, "dry_run": dry_run, "fast_forward": out.fast_forward,
             "replayed": out.replayed.iter().map(|(a, b)| json!({"from": a, "to": b})).collect::<Vec<_>>(),
             "ours_rewritten": out.ours_rewritten,
             "renumbered": out.renumbered.iter().map(|(s, a, b)| json!({"side": s.name(), "from": a, "to": b})).collect::<Vec<_>>(),
-            "conflicts": out.conflicts, "resolved": out.resolved, "both_touched": out.both_touched,
+            "conflicts": out.conflicts, "resolved": out.resolved,
+            "both_touched": if out.upstream {
+                out.both.iter().map(|b| json!({"id": b.id, "ends": b.ends, "older_stands": b.older_stands, "text": b.text})).collect::<Vec<_>>()
+            } else {
+                out.both_touched.iter().map(|b| json!(b)).collect::<Vec<_>>()
+            },
         });
+        if out.upstream {
+            v["upstream"] = json!(true);
+            v["moved"] = json!(out.moved.iter().map(|(id, a, b)| json!({"id": id, "from": a, "to": b})).collect::<Vec<_>>());
+        }
         println!("{}", serde_json::to_string_pretty(&v).unwrap());
         return;
     }
+    let say_moved = || {
+        for (id, a, b) in &out.moved {
+            say(&format!("moved: {} {} -> {}", id, a, b));
+        }
+    };
     if out.fast_forward {
+        say_moved();
         say(&format!("fast-forward to {}: {} event(s){}", &theirs[..10], out.replayed.len(), if dry_run { " (dry run)" } else { "" }));
         return;
     }
@@ -620,10 +848,13 @@ fn report(store: &Store, theirs: &Hash, out: &Outcome, dry_run: bool) {
     for (s, a, b) in &out.renumbered {
         say(&format!("renumbered: {} {} is now {}", s.name(), a, b));
     }
-    for b in &out.both_touched {
+    say_moved();
+    for b in out.both_touched.iter().chain(out.both.iter().map(|b| &b.text)) {
         say(&format!("status on both sides: {}", b));
     }
-    if out.ours_rewritten > 0 {
+    if out.upstream && out.ours_rewritten > 0 {
+        say(&format!("{} of our event(s) replayed after the shared line (new hashes; ids unchanged unless listed)", out.ours_rewritten));
+    } else if out.ours_rewritten > 0 {
         say(&format!("{} of our event(s) take a new place in chronological order (new hashes; ids unchanged unless listed)", out.ours_rewritten));
     }
     if !out.conflicts.is_empty() {
@@ -638,12 +869,15 @@ fn report(store: &Store, theirs: &Hash, out: &Outcome, dry_run: bool) {
     }
 }
 
-/// `tsk merge [THEIRS] [--prefer ours|theirs] [--dry-run] [--git]`.
-pub fn merge(theirs: Option<String>, prefer: Option<String>, dry_run: bool, git: bool) -> Result<()> {
+/// `tsk merge [THEIRS] [--prefer ours|theirs] [--dry-run] [--git] [--upstream]`.
+pub fn merge(theirs: Option<String>, prefer: Option<String>, dry_run: bool, git: bool, upstream: bool) -> Result<()> {
     let prefer = Side::parse(prefer)?;
     let store = store_open()?;
     let _lock: Lock = store.lock()?;
     let hf = store.read_head_file()?;
+    // On a keyed store, what came through git (the driver's `merge` line,
+    // conflict markers, or MERGE_HEAD) is the shared line.
+    let upstream = upstream || (store.keyed() && (theirs.is_none() || git));
     let theirs = match (theirs, git) {
         (Some(t), _) => store.resolve_hash(&t)?,
         (None, true) => crate::views::git_head_at(&store, "MERGE_HEAD").context("no merge in progress (MERGE_HEAD)")?,
@@ -651,7 +885,7 @@ pub fn merge(theirs: Option<String>, prefer: Option<String>, dry_run: bool, git:
     };
     let ours = hf.ours.clone().ok_or_else(|| anyhow!("no HEAD"))?;
     let was_pending = hf.conflicted || hf.pending.is_some();
-    let out = perform(&store, &theirs, prefer, dry_run)?;
+    let out = perform(&store, &theirs, prefer, dry_run, upstream)?;
     if !out.conflicts.is_empty() {
         if was_pending && !dry_run {
             store.set_head_pending(&ours, &theirs)?;
@@ -664,6 +898,10 @@ pub fn merge(theirs: Option<String>, prefer: Option<String>, dry_run: bool, git:
         msg.push_str("nothing was written; run again with --prefer ours or --prefer theirs");
         bail!("{}", msg.trim_end());
     }
+    if was_pending && !dry_run && out.head.as_ref() == Some(&ours) && hf.to_merge().as_ref() == Some(&theirs) {
+        // Already merged: clear the pending line, or every command re-runs it.
+        store.set_head(&ours)?;
+    }
     report(&store, &theirs, &out, dry_run);
     Ok(())
 }
@@ -673,7 +911,6 @@ pub fn merge(theirs: Option<String>, prefer: Option<String>, dry_run: bool, git:
 pub fn settle_pending(store: &Store, writing: bool) -> Result<()> {
     let hf = store.read_head_file()?;
     let Some(theirs) = hf.to_merge() else { return Ok(()) };
-    let ours = hf.ours.clone().ok_or_else(|| anyhow!("HEAD names a merge but no event"))?;
     let lock = match store.lock() {
         Ok(l) => l,
         Err(e) => {
@@ -687,7 +924,9 @@ pub fn settle_pending(store: &Store, writing: bool) -> Result<()> {
     // Re-read under the lock: another process may have settled it.
     let hf = store.read_head_file()?;
     let Some(theirs) = hf.to_merge() else { return Ok(()) };
-    let out = perform(store, &theirs, None, false)?;
+    let ours = hf.ours.clone().ok_or_else(|| anyhow!("HEAD names a merge but no event"))?;
+    // A keyed store settles what git brought as the shared-line merge.
+    let out = perform(store, &theirs, None, false, store.keyed())?;
     if !out.conflicts.is_empty() {
         store.set_head_pending(&ours, &theirs)?;
         let msg = format!(
@@ -702,23 +941,54 @@ pub fn settle_pending(store: &Store, writing: bool) -> Result<()> {
         eprintln!("tsk: {}; showing our side", msg);
         return Ok(());
     }
+    if out.head.as_ref() == Some(&ours) {
+        // Already merged: the pending line goes, HEAD stays.
+        store.set_head(&ours)?;
+        drop(lock);
+        if !json_mode() {
+            eprintln!("tsk: {} is already merged; the pending merge is cleared", &theirs[..10]);
+        }
+        return Ok(());
+    }
     drop(lock);
     if !json_mode() {
         eprintln!(
-            "tsk: merged {} ({} event(s) replayed{})",
+            "tsk: merged {} ({}{} event(s) replayed{})",
             &theirs[..10],
+            if out.upstream { "shared line kept, " } else { "" },
             out.replayed.len(),
             if out.renumbered.is_empty() { String::new() } else { format!(", {} id(s) renumbered", out.renumbered.len()) }
         );
+        for (id, a, b) in &out.moved {
+            eprintln!("tsk: moved: {} {} -> {}", id, a, b);
+        }
+        for b in &out.both {
+            eprintln!("tsk: status on both sides: {}", b.text);
+        }
     }
     Ok(())
 }
 
-/// The git merge driver for `.tasks/HEAD`: `tsk merge-driver %A %B`. Git
-/// calls it before the merged objects reach the working tree, so it does
-/// not merge; it records theirs as pending in ours, and the next tsk
+/// The git merge driver for `.tasks/HEAD`: `tsk merge-driver %A %B %P`.
+/// Git calls it before the merged objects reach the working tree, so it
+/// does not merge; it records theirs as pending in ours, and the next tsk
 /// command performs the merge. Exit 0: git sees no conflict.
-pub fn merge_driver(ours_path: String, theirs_path: String) -> Result<()> {
+///
+/// On a keyed store it refuses during a rebase, which swaps the sides (%A
+/// is the shared line), so the next command would replay the shared line
+/// instead of keeping it: %A untouched, exit 1, and git stops on a
+/// conflict. git runs the driver from the working tree's top and %P is the
+/// path from there; with no %P (a 0.6.0 registration) the store is
+/// `./.tasks`.
+pub fn merge_driver(ours_path: String, theirs_path: String, path: Option<String>) -> Result<()> {
+    let dir = match path.as_deref().map(std::path::Path::new).and_then(|p| p.parent()) {
+        Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
+        Some(_) => std::path::PathBuf::from("."),
+        None => std::path::PathBuf::from(".tasks"),
+    };
+    if Store::at(&dir).is_ok_and(|s| s.keyed()) && rebasing() {
+        bail!("this store is keyed and git is rebasing, which swaps the sides, so the shared line would be replayed instead of kept; run `git rebase --abort`, then `git merge <the shared line>`");
+    }
     let first = |p: &str| -> Result<String> {
         let t = std::fs::read_to_string(p).with_context(|| format!("reading {}", p))?;
         Ok(t.lines().next().unwrap_or("").trim().to_string())
@@ -736,6 +1006,21 @@ pub fn merge_driver(ours_path: String, theirs_path: String) -> Result<()> {
     Ok(())
 }
 
+/// Whether git is in the middle of a rebase: either backend's state
+/// directory exists. Asked of git, since a linked worktree keeps it under
+/// `.git/worktrees/<name>/`.
+fn rebasing() -> bool {
+    ["rebase-merge", "rebase-apply"].iter().any(|d| {
+        std::process::Command::new("git")
+            .args(["rev-parse", "--git-path", d])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| std::path::Path::new(String::from_utf8_lossy(&o.stdout).trim()).exists())
+            .unwrap_or(false)
+    })
+}
+
 /// Tell git about the merge driver, globally, and give the store (if one is
 /// here) the attributes that use it.
 pub fn git_setup() -> Result<()> {
@@ -747,7 +1032,7 @@ pub fn git_setup() -> Result<()> {
         Ok(())
     };
     run(&["config", "--global", "merge.tsk.name", "tsk store merge (records the other HEAD; tsk replays it)"])?;
-    run(&["config", "--global", "merge.tsk.driver", "tsk merge-driver %A %B"])?;
+    run(&["config", "--global", "merge.tsk.driver", "tsk merge-driver %A %B %P"])?;
     say("git: merge.tsk.driver set globally");
     if let Ok(store) = store_open() {
         let p = store.dir.join(".gitattributes");

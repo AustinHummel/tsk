@@ -388,6 +388,11 @@ enum Cmd {
         /// Take the other HEAD from git's MERGE_HEAD.
         #[arg(long)]
         git: bool,
+        /// The other HEAD is the shared line: keep it event for event (same hashes, ids and
+        /// outline numbers) and replay this copy's unpublished events after it. A keyed store
+        /// merges what came through git this way.
+        #[arg(long)]
+        upstream: bool,
     },
     /// Configure git to hand `.tasks/HEAD` merges to tsk (once per machine).
     GitSetup,
@@ -415,8 +420,8 @@ enum Cmd {
     HashObject { file: Option<String> },
     /// List every id -> hash in a snapshot (default HEAD).
     LsSnapshot { event: Option<String> },
-    /// The git merge driver for `.tasks/HEAD` (installed by `git-setup`).
-    MergeDriver { ours: String, theirs: String },
+    /// The git merge driver for `.tasks/HEAD` (installed by `git-setup`): `%A %B %P`.
+    MergeDriver { ours: String, theirs: String, path: Option<String> },
     /// List event hashes from HEAD back.
     RevList {
         #[arg(short = 'n', long)]
@@ -552,12 +557,12 @@ fn run() {
         Cmd::Render { dir } => render::render(dir),
         Cmd::Backlinks { task } => render::backlinks(task, json),
         Cmd::Prune { before, dry_run } => prune::prune(before, dry_run),
-        Cmd::Merge { theirs, prefer, dry_run, git } => merge::merge(theirs, prefer, dry_run, git),
+        Cmd::Merge { theirs, prefer, dry_run, git, upstream } => merge::merge(theirs, prefer, dry_run, git, upstream),
         Cmd::GitSetup => merge::git_setup(),
         Cmd::Key { letters } => commands::key(letters, json),
         Cmd::Reflog { limit } => commands::reflog(limit, json),
         Cmd::Reset { event } => commands::reset(event),
-        Cmd::MergeDriver { ours, theirs } => merge::merge_driver(ours, theirs),
+        Cmd::MergeDriver { ours, theirs, path } => merge::merge_driver(ours, theirs, path),
         Cmd::Config { key, value } => commands::config(key, value),
         Cmd::CatObject { hash } => commands::cat_object(hash),
         Cmd::HashObject { file } => commands::hash_object(file),

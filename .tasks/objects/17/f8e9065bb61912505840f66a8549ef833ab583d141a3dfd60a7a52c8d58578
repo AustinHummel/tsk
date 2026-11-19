@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Started",
+  "parent": "4ff6b3ee49b8c5688f52705039aa3d201bb9faf3dc431653f36e8d13cab0b82d",
+  "snapshot": "a353538fcc45f7c84013fca328a78ce575098218a2e50a7b0f245a2367f9868a",
+  "time": "2026-11-19T20:34:16Z",
+  "author": "opus tsk-0.7.0-U4 2026-11-19",
+  "message": "start 12.4",
+  "subjects": [
+    "t100"
+  ],
+  "forced": false
+}

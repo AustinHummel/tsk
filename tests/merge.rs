@@ -393,3 +393,407 @@ fn the_same_key_on_two_copies_refuses_the_merge() {
     assert_eq!(a.read(".tasks/HEAD"), before, "nothing written");
     assert!(a.ok(&["plan"]).contains("t5m alice's root"));
 }
+
+// ----- 0.7: the shared-line merge --------------------------------------------
+
+/// Two copies of Dana's plan. `shared` stands for the shared line (what was
+/// pushed); `ours` holds work it has not published. Keyed when `keys` names
+/// a key for each.
+fn pair(name: &str, keys: Option<(&str, &str)>) -> (Proj, Proj) {
+    let ours = Proj::new(&format!("{}-ours", name));
+    dana(&ours);
+    if keys.is_some() {
+        ours.ok(&["config", "ids", "keyed"]);
+    }
+    let shared = Proj::new(&format!("{}-shared", name));
+    copy_store(&ours.dir, &shared.dir);
+    if let Some((o, s)) = keys {
+        ours.ok(&["key", o]);
+        shared.ok(&["key", s]);
+    }
+    (ours, shared)
+}
+
+/// "number id" for every task line of `tsk plan`, glyph and notes aside.
+fn positions(plan: &str) -> Vec<String> {
+    plan.lines()
+        .filter_map(|l| {
+            let w: Vec<&str> = l.split_once(']')?.1.split_whitespace().collect();
+            (w.len() > 1).then(|| format!("{} {}", w[0], w[1]))
+        })
+        .collect()
+}
+
+fn later() {
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+}
+
+#[test]
+fn a_published_id_and_number_survive_a_merge_with_an_older_unpublished_event() {
+    let (a, b) = pair("older-unpub", None);
+    // Ours is older: the canonical merge would put it first and rename theirs.
+    a.ok(&["amend", "1", "alice's step", "--fit", "hers"]); // t5, 1.4
+    later();
+    b.ok(&["amend", "1", "bob's step", "--fit", "his"]); // t5, 1.4: published
+    let published = b.ok(&["plan"]);
+    assert!(published.contains("1.4 t5 bob's step"), "{}", published);
+    bring_objects(&b.dir, &a.dir);
+    let out = a.ok(&["merge", &head(&b), "--upstream"]);
+    assert!(out.contains("renumbered: ours t5 is now t6") && !out.contains("theirs t5"), "only ours is renamed:\n{}", out);
+    let plan = a.ok(&["plan"]);
+    assert!(plan.contains("1.4 t5 bob's step") && plan.contains("1.5 t6 alice's step"), "{}", plan);
+    // Every id and number the shared line published is where it was.
+    for l in published.lines() {
+        assert!(plan.contains(l.trim_end()), "{} moved:\n{}", l, plan);
+    }
+}
+
+#[test]
+fn theirs_keeps_every_hash() {
+    let (a, b) = pair("keep-hash", Some(("p", "m")));
+    a.ok(&["add", "pc's root", "--by", "PC: work"]);
+    a.ok(&["complete", "1.1"]);
+    b.ok(&["add", "mac's root", "--by", "Mac: work"]);
+    b.ok(&["edit", "1.2", "-b", "mac's body"]);
+    bring_objects(&b.dir, &a.dir);
+    let ours_before: Vec<String> = a.ok(&["rev-list"]).lines().map(String::from).collect();
+    let theirs: Vec<String> = b.ok(&["rev-list"]).lines().map(String::from).collect();
+    a.ok(&["merge", &theirs[0], "--upstream"]);
+    let merged: Vec<String> = a.ok(&["rev-list"]).lines().map(String::from).collect();
+    // Their whole line, event for event, is the tail of ours.
+    assert!(merged.ends_with(&theirs), "their line is kept:\nmerged {:?}\ntheirs {:?}", merged, theirs);
+    // Then our two events, replayed in our order, then the merge event.
+    assert_eq!(merged.len(), theirs.len() + 3, "{:?}", merged);
+    let js: serde_json::Value = serde_json::from_str(&a.ok(&["--json", "log", "-n", "3"])).unwrap();
+    assert_eq!(js[0]["event"]["kind"], "Merged", "{}", js);
+    assert_eq!(js[1]["event"]["replayed_from"], ours_before[0].as_str(), "our complete, last");
+    assert_eq!(js[2]["event"]["replayed_from"], ours_before[1].as_str(), "our add, first");
+    let plan = a.ok(&["plan", "-a"]);
+    assert!(plan.contains("[x] 1.1") && plan.contains("pc's root") && plan.contains("mac's root"), "{}", plan);
+    assert!(a.ok(&["show", "1.2"]).contains("mac's body"));
+}
+
+#[test]
+fn nothing_unpublished_is_a_fast_forward() {
+    let (a, b) = pair("ff", Some(("p", "m")));
+    a.ok(&["add", "pc's root", "--by", "PC: work"]);
+    b.ok(&["add", "mac's root", "--by", "Mac: work"]);
+    // The shared line takes our work first (the canonical merge, replayed
+    // under new hashes), then moves on.
+    bring_objects(&a.dir, &b.dir);
+    b.ok(&["merge", &head(&a)]);
+    b.ok(&["start", "1.1"]);
+    bring_objects(&b.dir, &a.dir);
+    let out = a.ok(&["merge", &head(&b), "--upstream"]);
+    assert!(out.contains("fast-forward"), "every event of ours is on their line, replayed:\n{}", out);
+    assert_eq!(head(&a), head(&b));
+    assert_eq!(a.ok(&["plan", "-a"]), b.ok(&["plan", "-a"]));
+}
+
+#[test]
+fn the_report_names_every_number_of_ours_that_moved() {
+    let (a, b) = pair("moved", Some(("p", "m")));
+    a.ok(&["add", "pc's root", "--by", "PC: work"]); // t5p, root 2
+    a.ok(&["amend", "1", "pc's piece", "--fit", "hers"]); // t6p, 1.4
+    later();
+    b.ok(&["add", "mac's root", "--by", "Mac: work"]); // t5m, root 2
+    b.ok(&["amend", "1", "mac's piece", "--fit", "his"]); // t6m, 1.4
+    bring_objects(&b.dir, &a.dir);
+    let json: serde_json::Value = serde_json::from_str(&a.ok(&["--json", "merge", &head(&b), "--upstream", "--dry-run"])).unwrap();
+    let moved = json["moved"].as_array().unwrap_or_else(|| panic!("{}", json));
+    assert!(moved.contains(&serde_json::json!({"id": "t5p", "from": "2", "to": "3"})), "{}", json);
+    assert!(moved.contains(&serde_json::json!({"id": "t6p", "from": "1.4", "to": "1.5"})), "{}", json);
+    assert_eq!(moved.len(), 2, "nothing else of ours moved: {}", json);
+    let out = a.ok(&["merge", &head(&b), "--upstream"]);
+    // Keyed ids keep their ids (the U3 case: the next position, not a new id).
+    assert!(out.contains("moved: t5p 2 -> 3") && out.contains("moved: t6p 1.4 -> 1.5") && !out.contains("renumbered"), "{}", out);
+    let plan = a.ok(&["plan"]);
+    assert!(plan.contains("[ ] 2 t5m mac's root") && plan.contains("[ ] 3 t5p pc's root"), "{}", plan);
+    assert!(plan.contains("1.4 t6m mac's piece") && plan.contains("1.5 t6p pc's piece"), "{}", plan);
+    let log = a.ok(&["log", "-n", "1"]);
+    assert!(log.contains("moved t5p 2->3") && log.contains("t6p 1.4->1.5"), "the merge event carries the report: {}", log);
+}
+
+#[test]
+fn status_on_both_sides_is_reported_with_the_status_it_ends_in() {
+    let (a, b) = pair("both-status", Some(("p", "m")));
+    a.ok(&["start", "1.1"]); // older
+    later();
+    b.ok(&["complete", "1.1"]); // newer, published
+    bring_objects(&b.dir, &a.dir);
+    let out = a.ok(&["merge", &head(&b), "--upstream"]);
+    assert!(
+        out.contains("status on both sides: t2 ends in-progress (ours started ") && out.contains(", theirs completed ") && out.contains("; the older event stands)"),
+        "reported, not stopped:\n{}",
+        out
+    );
+    assert!(a.ok(&["plan"]).contains("[>] 1.1"), "ours replays after theirs, so it stands");
+    assert!(a.ok(&["log", "-n", "1"]).contains("t2 ends in-progress"), "in the merge event's message");
+    // JSON, on a fresh pair the other way round: ours is the later event.
+    let (c, d) = pair("both-status-json", Some(("p", "m")));
+    d.ok(&["start", "1.1"]);
+    later();
+    c.ok(&["complete", "1.1"]);
+    bring_objects(&d.dir, &c.dir);
+    let js: serde_json::Value = serde_json::from_str(&c.ok(&["--json", "merge", &head(&d), "--upstream"])).unwrap();
+    let bt = &js["both_touched"][0];
+    assert_eq!((bt["id"].as_str(), bt["ends"].as_str(), bt["older_stands"].as_bool()), (Some("t2"), Some("complete"), Some(false)), "{}", js);
+}
+
+#[test]
+fn merging_twice_changes_nothing() {
+    let (a, b) = pair("twice", Some(("p", "m")));
+    a.ok(&["add", "pc's root", "--by", "PC: work"]);
+    b.ok(&["add", "mac's root", "--by", "Mac: work"]);
+    bring_objects(&b.dir, &a.dir);
+    let theirs = head(&b);
+    a.ok(&["merge", &theirs, "--upstream"]);
+    let (h, revs, plan, log) = (head(&a), a.ok(&["rev-list"]), a.ok(&["plan", "-a"]), a.read(".tasks/log"));
+    for args in [vec!["merge", theirs.as_str(), "--upstream"], vec!["merge", theirs.as_str(), "--upstream", "--dry-run"]] {
+        let out = a.ok(&args);
+        assert!(out.contains("already merged") || out.contains("would replay 0 event(s)"), "{}", out);
+        assert_eq!((head(&a), a.ok(&["rev-list"]), a.ok(&["plan", "-a"]), a.read(".tasks/log")), (h.clone(), revs.clone(), plan.clone(), log.clone()));
+    }
+    // A fast-forward merged twice: the second is a no-op too.
+    let (c, d) = pair("twice-ff", None);
+    d.ok(&["add", "theirs only"]);
+    bring_objects(&d.dir, &c.dir);
+    assert!(c.ok(&["merge", &head(&d), "--upstream"]).contains("fast-forward"));
+    let h = head(&c);
+    assert!(c.ok(&["merge", &head(&d), "--upstream"]).contains("already merged"));
+    assert_eq!(head(&c), h);
+}
+
+#[test]
+fn a_pending_marker_already_merged_is_cleared() {
+    // Either merge: here the canonical one, on an unkeyed store.
+    let (a, b) = pair("marker", None);
+    a.ok(&["add", "alice's root"]);
+    b.ok(&["add", "bob's root"]);
+    bring_objects(&b.dir, &a.dir);
+    let theirs = head(&b);
+    a.ok(&["merge", &theirs]);
+    let ours = head(&a);
+    std::fs::write(a.dir.join(".tasks/HEAD"), format!("{}\nmerge {}\n", ours, theirs)).unwrap();
+    a.ok(&["plan"]);
+    assert_eq!(a.read(".tasks/HEAD"), format!("{}\n", ours), "the marker is cleared, HEAD unchanged");
+    let (ok, text) = a.run(&["plan"]);
+    assert!(ok && !text.contains("merged "), "nothing is re-announced: {}", text);
+}
+
+#[test]
+fn apply_and_prune_then_merge() {
+    let (a, b) = pair("apply-prune", Some(("p", "m")));
+    a.ok(&["type", "add", "change", "A change"]);
+    a.ok(&["type", "item", "change", "tested", "Covered by a test"]);
+    a.ok(&["add", "pc's root", "--by", "PC: work"]); // t5p
+    b.ok(&["add", "mac's root", "--by", "Mac: work"]); // t5m
+    b.ok(&["amend", "1", "mac's piece", "--fit", "his"]); // t6m
+    bring_objects(&b.dir, &a.dir);
+    let first = head(&b);
+    a.ok(&["merge", &first, "--upstream"]);
+    // After a shared-line merge: apply a type, prune, and keep working.
+    a.ok(&["apply", "change", "t5p"]);
+    a.ok(&["prune"]);
+    let out = a.ok(&["prune", "--before", &first]);
+    assert!(out.contains("pruned") || out.contains("removed"), "{}", out);
+    a.ok(&["start", "1.1"]);
+    let plan = a.ok(&["plan", "-a"]);
+    assert!(plan.contains("[ ] 2 t5m mac's root") && plan.contains("1.4 t6m mac's piece") && plan.contains("t5p pc's root"), "{}", plan);
+    assert!(a.ok(&["show", "t5p"]).contains("change"), "the type is applied");
+    // The shared line moves on; ours merges it again, over the prune.
+    b.ok(&["complete", "1.4"]);
+    bring_objects(&b.dir, &a.dir);
+    let published = b.ok(&["plan", "-a"]);
+    let out = a.ok(&["merge", &head(&b), "--upstream"]);
+    assert!(out.contains("merged"), "{}", out);
+    let theirs: Vec<String> = b.ok(&["rev-list"]).lines().map(String::from).collect();
+    assert!(a.ok(&["rev-list"]).lines().map(String::from).collect::<Vec<_>>().ends_with(&theirs), "their line is kept over a prune");
+    let plan = a.ok(&["plan", "-a"]);
+    for np in positions(&published) {
+        assert!(positions(&plan).contains(&np), "{} moved:\n{}", np, plan);
+    }
+    assert!(plan.contains("[>] 1.1") && plan.contains("[x] 1.4 t6m"), "{}", plan);
+    // The shared line takes ours by fast-forward: one line on both copies.
+    bring_objects(&a.dir, &b.dir);
+    assert!(b.ok(&["merge", &head(&a), "--upstream"]).contains("fast-forward"));
+    assert_eq!(a.ok(&["plan", "-a"]), b.ok(&["plan", "-a"]));
+    // A prune past our own unpublished work takes the snapshots replay
+    // needs: the merge refuses in one sentence and writes nothing.
+    // (Two events of ours: the snapshot between them is on this copy alone.)
+    a.ok(&["add", "pc's late root", "--by", "PC: late"]);
+    a.ok(&["edit", "pc's late root", "-b", "later still"]);
+    let kept = Proj::new("apply-prune-kept"); // what git still holds from before the prune
+    copy_store(&a.dir, &kept.dir);
+    a.ok(&["prune", "--before", &head(&a)]);
+    b.ok(&["add", "mac's late root", "--by", "Mac: late"]);
+    bring_objects(&b.dir, &a.dir);
+    let before = a.read(".tasks/HEAD");
+    let msg = a.fails(&["merge", &head(&b), "--upstream"]);
+    assert!(msg.contains("lost a snapshot to a prune, so nothing was written") && msg.contains("-- .tasks/objects") && msg.trim().lines().count() == 1, "{}", msg);
+    assert_eq!(a.read(".tasks/HEAD"), before);
+    // The way out: the objects come back, and the merge goes through.
+    bring_objects(&kept.dir, &a.dir);
+    a.ok(&["merge", &head(&b), "--upstream"]);
+    let plan = a.ok(&["plan"]);
+    assert!(plan.contains("[ ] 4 t") && plan.contains("mac's late root") && plan.contains("[ ] 5 t") && plan.contains("pc's late root"), "{}", plan);
+}
+
+// ----- 0.7: the shared-line merge through real git ---------------------------
+
+/// git as a machine with `tsk git-setup` done would run it, without touching
+/// this machine's own git config: a global config file of its own, and on
+/// PATH a directory whose `tsk` is the binary under test, so the driver
+/// `git-setup` registers runs this build.
+struct Machine {
+    root: std::path::PathBuf,
+    path: std::ffi::OsString,
+}
+
+impl Machine {
+    fn new(name: &str) -> Machine {
+        let root = std::env::temp_dir().join(format!("tsk-test-machine-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        std::fs::copy(env!("CARGO_BIN_EXE_tsk"), root.join("bin").join(format!("tsk{}", std::env::consts::EXE_SUFFIX))).unwrap();
+        std::fs::write(root.join("gitconfig"), "").unwrap();
+        let mut dirs = vec![root.join("bin")];
+        dirs.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+        Machine { path: std::env::join_paths(dirs).unwrap(), root }
+    }
+    fn env(&self) -> Vec<(&'static str, String)> {
+        vec![("GIT_CONFIG_GLOBAL", self.root.join("gitconfig").to_string_lossy().to_string()), ("PATH", self.path.to_string_lossy().to_string())]
+    }
+    /// Run git in `dir`; (success, stdout and stderr).
+    fn git(&self, dir: &Path, args: &[&str]) -> (bool, String) {
+        let mut cmd = common::scrubbed("git");
+        cmd.args(["-c", "user.email=t@t", "-c", "user.name=t", "-c", "init.defaultBranch=main"]).args(args).current_dir(dir);
+        for (k, v) in self.env() {
+            cmd.env(k, v);
+        }
+        let out = cmd.output().expect("git on PATH");
+        (out.status.success(), format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)))
+    }
+    fn ok(&self, dir: &Path, args: &[&str]) -> String {
+        let (ok, text) = self.git(dir, args);
+        assert!(ok, "git {:?}:\n{}", args, text);
+        text
+    }
+    fn commit(&self, dir: &Path, msg: &str) {
+        self.ok(dir, &["add", "-A"]);
+        self.ok(dir, &["commit", "-qm", msg]);
+    }
+    /// tsk in `p` with this machine's environment.
+    fn tsk(&self, p: &Proj, args: &[&str]) -> (bool, String) {
+        let env = self.env();
+        let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        p.run_from(&p.dir, &env, args)
+    }
+    /// A store under git with Dana's plan (keyed with key `m` when `keyed`),
+    /// `git-setup` done, and a clone of it with key `p`: the shared line's
+    /// home and a second machine's copy.
+    fn pair(&self, name: &str, keyed: bool) -> (Proj, Proj) {
+        let mac = Proj::new(&format!("{}-mac", name));
+        self.ok(&mac.dir, &["init", "-q"]);
+        dana(&mac);
+        if keyed {
+            mac.ok(&["config", "ids", "keyed"]);
+            mac.ok(&["key", "m"]);
+        }
+        let (ok, text) = self.tsk(&mac, &["git-setup"]);
+        assert!(ok, "{}", text);
+        self.commit(&mac.dir, "plan");
+        let pc = Proj { dir: std::env::temp_dir().join(format!("tsk-test-{}-pc-{}", name, std::process::id())) };
+        let _ = std::fs::remove_dir_all(&pc.dir);
+        self.ok(&mac.dir, &["clone", "-q", ".", pc.dir.to_str().unwrap()]);
+        if keyed {
+            pc.ok(&["key", "p"]);
+        }
+        (mac, pc)
+    }
+}
+
+impl Drop for Machine {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+#[test]
+fn the_driver_path_on_a_keyed_store_keeps_theirs() {
+    let m = Machine::new("driver-keyed");
+    let (mac, pc) = m.pair("driver-keyed", true);
+    assert_eq!(m.ok(&pc.dir, &["config", "--global", "merge.tsk.driver"]).trim(), "tsk merge-driver %A %B %P", "git-setup registers %P");
+    // The PC's work is older and unpublished; the Mac's is on the shared line.
+    pc.ok(&["amend", "1", "pc's piece", "--fit", "hers"]); // t5p, 1.4
+    m.commit(&pc.dir, "pc");
+    later();
+    mac.ok(&["amend", "1", "mac's piece", "--fit", "his"]); // t5m, 1.4
+    mac.ok(&["add", "mac's root", "--by", "Mac: work"]); // t6m, 2
+    m.commit(&mac.dir, "mac");
+    let shared: Vec<String> = mac.ok(&["rev-list"]).lines().map(String::from).collect();
+    m.ok(&pc.dir, &["fetch", "-q"]);
+    let out = m.ok(&pc.dir, &["merge", "--no-edit", "origin/main"]);
+    assert!(!out.contains("CONFLICT"), "{}", out);
+    assert!(pc.read(".tasks/HEAD").lines().nth(1).unwrap_or("").starts_with("merge "), "the driver left the merge pending");
+    let (ok, text) = m.tsk(&pc, &["plan"]);
+    assert!(ok && text.contains("shared line kept") && text.contains("moved: t5p 1.4 -> 1.5"), "settled as the shared-line merge:\n{}", text);
+    let merged: Vec<String> = pc.ok(&["rev-list"]).lines().map(String::from).collect();
+    assert!(merged.ends_with(&shared), "the shared line, hash for hash:\nmerged {:?}\nshared {:?}", merged, shared);
+    let plan = pc.ok(&["plan"]);
+    assert!(plan.contains("1.4 t5m mac's piece") && plan.contains("1.5 t5p pc's piece") && plan.contains("2 t6m mac's root"), "{}", plan);
+    assert_eq!(pc.read(".tasks/HEAD").lines().count(), 1);
+    // Committed and pushed back, the Mac takes it as a fast-forward.
+    m.commit(&pc.dir, "merged");
+    m.ok(&mac.dir, &["pull", "--no-rebase", "--no-edit", "-q", pc.dir.to_str().unwrap(), "main"]);
+    let (ok, text) = m.tsk(&mac, &["plan"]);
+    assert!(ok && text.contains("1.5 t5p pc's piece"), "{}", text);
+    assert_eq!(head(&mac), head(&pc));
+    let _ = std::fs::remove_dir_all(&pc.dir);
+}
+
+#[test]
+fn the_driver_refuses_during_a_rebase_on_a_keyed_store() {
+    let m = Machine::new("driver-rebase");
+    let (mac, pc) = m.pair("driver-rebase", true);
+    pc.ok(&["add", "pc's root", "--by", "PC: work"]);
+    m.commit(&pc.dir, "pc");
+    let pc_head = head(&pc);
+    mac.ok(&["add", "mac's root", "--by", "Mac: work"]);
+    m.commit(&mac.dir, "mac");
+    let mac_head = head(&mac);
+    m.ok(&pc.dir, &["fetch", "-q"]);
+    for backend in ["--merge", "--apply"] {
+        let (ok, text) = m.git(&pc.dir, &["rebase", backend, "origin/main"]);
+        assert!(!ok, "{}: {}", backend, text);
+        assert!(
+            text.contains("tsk: this store is keyed and git is rebasing, which swaps the sides, so the shared line would be replayed instead of kept; run `git rebase --abort`, then `git merge <the shared line>`"),
+            "{}: {}",
+            backend,
+            text
+        );
+        // %A untouched: in a rebase it is the shared line's HEAD.
+        assert_eq!(pc.read(".tasks/HEAD"), format!("{}\n", mac_head), "{}", backend);
+        m.ok(&pc.dir, &["rebase", "--abort"]);
+        assert_eq!(head(&pc), pc_head);
+    }
+    // The way out the sentence names.
+    m.ok(&pc.dir, &["merge", "--no-edit", "origin/main"]);
+    let (ok, text) = m.tsk(&pc, &["plan"]);
+    assert!(ok && text.contains("shared line kept") && text.contains("moved: t5p 2 -> 3"), "{}", text);
+    let _ = std::fs::remove_dir_all(&pc.dir);
+    // An unkeyed store's driver is unchanged: the rebase goes through.
+    let u = Machine::new("driver-rebase-unkeyed");
+    let (umac, upc) = u.pair("driver-rebase-unkeyed", false);
+    upc.ok(&["add", "pc's root"]);
+    u.commit(&upc.dir, "pc");
+    umac.ok(&["add", "mac's root"]);
+    u.commit(&umac.dir, "mac");
+    u.ok(&upc.dir, &["fetch", "-q"]);
+    let out = u.ok(&upc.dir, &["rebase", "origin/main"]);
+    assert!(!out.contains("CONFLICT"), "{}", out);
+    assert!(upc.read(".tasks/HEAD").contains("\nmerge "), "{}", upc.read(".tasks/HEAD"));
+    let (ok, text) = u.tsk(&upc, &["plan"]);
+    assert!(ok && text.contains("pc's root") && text.contains("mac's root"), "{}", text);
+    let _ = std::fs::remove_dir_all(&upc.dir);
+}

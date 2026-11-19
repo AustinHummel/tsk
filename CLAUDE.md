@@ -14,7 +14,7 @@ A CLI for planning and tracking work, built the way Git is built: every
 change is an immutable event pointing at a snapshot of the whole plan, and
 status, readiness and loops are computed from history, never stored. Rust
 2021, one binary, pure-Rust dependencies, about 7,000 lines in fourteen
-modules under `src/`, 55 end-to-end tests under `tests/`. Version 0.6.0
+modules under `src/`, 65 end-to-end tests under `tests/`. Version 0.6.0
 (`Cargo.toml`). Public at https://github.com/AustinHummel/tsk, MIT.
 
 It is Austin Hummel's tool, maintained by his org's agents (his decision,
@@ -47,9 +47,17 @@ Each is enforced by a test named in brackets where one exists.
    cleared flag. The cache under `.tasks/cache/` is keyed by the hash it
    derives from and may be deleted at any time.
 4. **Ids and positions are fixed.** A task is never renumbered or moved;
-   children keep creation order. The one exception is `merge`, whose
-   canonical replay renumbers colliding ids and reports the map.
-   [`tasks_resolve_by_id_number_or_title`, `disjoint_changes_merge_with_ids_renumbered`]
+   children keep creation order. The exceptions are in `merge`, and only
+   for work one copy holds alone. The shared-line merge (`--upstream`,
+   and git's driver on a keyed store) keeps every id and position on the
+   line it merges in; this copy's unpublished tasks take the next
+   positions, and each number that moved is reported. A keyed id is never
+   renamed by any merge. The canonical merge of an unkeyed store still
+   renumbers colliding ids and reports the map.
+   [`tasks_resolve_by_id_number_or_title`, `disjoint_changes_merge_with_ids_renumbered`,
+   `a_published_id_and_number_survive_a_merge_with_an_older_unpublished_event`,
+   `the_report_names_every_number_of_ours_that_moved`,
+   `two_keyed_copies_merge_both_ways_and_no_id_changes`]
 5. **Breakdown is atomic**: children, narrative and the disposition of
    every requirement in one event, or nothing.
    [`breakdown_is_atomic_and_hands_requirements_down`]
@@ -92,8 +100,8 @@ pass `--manifest-path C:\Projects\tsk\Cargo.toml`), and what green means:
 cd /c/Projects/tsk && nice -n 10 ~/.cargo/bin/cargo.exe test --locked
 ```
 
-Green is **55 passed, 0 failed, 1 ignored** (15 in `tests/cli.rs`, 17 in
-`tests/agent_org.rs`, 9 in `tests/merge.rs`, 14 in `tests/trial.rs`, 0 in
+Green is **65 passed, 0 failed, 1 ignored** (15 in `tests/cli.rs`, 17 in
+`tests/agent_org.rs`, 19 in `tests/merge.rs`, 14 in `tests/trial.rs`, 0 in
 `src/`; the ignored one is the inner half of the `TSK_STORE` isolation
 test, which runs it in a child), about 10 s on a warm `target/`, a few minutes on a cold one. A change that adds a test
 updates this count in the same commit. `--locked` holds the committed
@@ -174,8 +182,10 @@ For a change here:
   version was built.
 - Branches each carry their own copy of the store, so merging one can
   conflict on `.tasks/HEAD`. The merge driver from `tsk git-setup` (once
-  per machine; registered on the development machine) records the other
-  side as pending and the next tsk command replays it; without the
+  per machine, and again on installing 0.7.0, which registers `%P`)
+  records the other side as pending and the next tsk command replays it
+  (on a keyed store, as the shared-line merge; the driver refuses during
+  a rebase there); without the
   driver, `tsk merge` reads the markers (README, "Merging copies of a
   store").
 
