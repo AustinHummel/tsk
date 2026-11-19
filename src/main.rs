@@ -391,6 +391,11 @@ enum Cmd {
     },
     /// Configure git to hand `.tasks/HEAD` merges to tsk (once per machine).
     GitSetup,
+    /// This copy's writer key: print it, or set it to LETTERS (1 to 3 lowercase letters no
+    /// other copy uses). On a keyed store (`tsk config ids keyed`) every new id carries it,
+    /// `t150m`, so two copies never make the same id. Kept in `.tasks/key`, which git never
+    /// carries; no event.
+    Key { letters: Option<String> },
     /// Every move of HEAD on this copy, newest first: the way back from any merge or reset.
     Reflog {
         #[arg(short = 'n', long)]
@@ -399,7 +404,8 @@ enum Cmd {
     /// Move HEAD to an earlier (or any) event, recorded in the reflog. Nothing is deleted.
     Reset { event: String },
     /// Read or set config (`author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`,
-    /// `color.ui`, `require.by`).
+    /// `color.ui`, `require.by`, `ids`). `ids keyed` turns writer keys on for every copy
+    /// (see `tsk key`).
     Config { key: Option<String>, value: Option<String> },
 
     // ----- plumbing -----
@@ -548,6 +554,7 @@ fn run() {
         Cmd::Prune { before, dry_run } => prune::prune(before, dry_run),
         Cmd::Merge { theirs, prefer, dry_run, git } => merge::merge(theirs, prefer, dry_run, git),
         Cmd::GitSetup => merge::git_setup(),
+        Cmd::Key { letters } => commands::key(letters, json),
         Cmd::Reflog { limit } => commands::reflog(limit, json),
         Cmd::Reset { event } => commands::reset(event),
         Cmd::MergeDriver { ours, theirs } => merge::merge_driver(ours, theirs),

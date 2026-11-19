@@ -14,7 +14,7 @@ A CLI for planning and tracking work, built the way Git is built: every
 change is an immutable event pointing at a snapshot of the whole plan, and
 status, readiness and loops are computed from history, never stored. Rust
 2021, one binary, pure-Rust dependencies, about 7,000 lines in fourteen
-modules under `src/`, 50 end-to-end tests under `tests/`. Version 0.6.0
+modules under `src/`, 55 end-to-end tests under `tests/`. Version 0.6.0
 (`Cargo.toml`). Public at https://github.com/AustinHummel/tsk, MIT.
 
 It is Austin Hummel's tool, maintained by his org's agents (his decision,
@@ -92,8 +92,8 @@ pass `--manifest-path C:\Projects\tsk\Cargo.toml`), and what green means:
 cd /c/Projects/tsk && nice -n 10 ~/.cargo/bin/cargo.exe test --locked
 ```
 
-Green is **50 passed, 0 failed, 1 ignored** (12 in `tests/cli.rs`, 17 in
-`tests/agent_org.rs`, 7 in `tests/merge.rs`, 14 in `tests/trial.rs`, 0 in
+Green is **55 passed, 0 failed, 1 ignored** (15 in `tests/cli.rs`, 17 in
+`tests/agent_org.rs`, 9 in `tests/merge.rs`, 14 in `tests/trial.rs`, 0 in
 `src/`; the ignored one is the inner half of the `TSK_STORE` isolation
 test, which runs it in a child), about 10 s on a warm `target/`, a few minutes on a cold one. A change that adds a test
 updates this count in the same commit. `--locked` holds the committed

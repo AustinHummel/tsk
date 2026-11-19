@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Started",
+  "parent": "f7c7c288a1c4266ccdbd9226df1763f39407fa0cb91343991ecf05c7accebf96",
+  "snapshot": "a353538fcc45f7c84013fca328a78ce575098218a2e50a7b0f245a2367f9868a",
+  "time": "2026-11-19T20:22:01Z",
+  "author": "side mac-mini 2026-11-11",
+  "message": "start 12.3",
+  "subjects": [
+    "t99"
+  ],
+  "forced": false
+}

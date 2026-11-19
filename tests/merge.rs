@@ -328,3 +328,68 @@ fn closed_and_reopened_replay_in_a_merge() {
     assert!(out.contains("status on both sides: 1 t1 Run: ours reopened at") && out.contains("then theirs reopened"), "{}", out);
     assert!(a.ok(&["plan", "-a"]).contains("[x] 1 t1 Run"), "the later close stands");
 }
+
+// ----- 0.7: writer keys -----------------------------------------------------
+
+#[test]
+fn two_keyed_copies_merge_both_ways_and_no_id_changes() {
+    let a = Proj::new("keys-a");
+    dana(&a); // t1 to t4, bare
+    a.ok(&["config", "ids", "keyed"]);
+    let b = Proj::new("keys-b");
+    copy_store(&a.dir, &b.dir);
+    a.ok(&["key", "m"]);
+    b.ok(&["key", "p"]);
+    a.run_from(&a.dir, &[("TSK_AUTHOR", "alice")], &["add", "alice's root", "--by", "Alice: hers"]); // t5m r5m
+    a.run_from(&a.dir, &[("TSK_AUTHOR", "alice")], &["amend", "1", "alice's piece", "--fit", "hers"]); // t6m
+    b.run_from(&b.dir, &[("TSK_AUTHOR", "bob")], &["add", "bob's root", "--by", "Bob: his"]); // t5p r5p
+    b.run_from(&b.dir, &[("TSK_AUTHOR", "bob")], &["amend", "1", "bob's piece", "--fit", "his"]); // t6p
+    b.run_from(&b.dir, &[("TSK_AUTHOR", "bob")], &["link", "t6p", "1.3", "his before showing"]); // r6p
+    let (ha, hb) = (head(&a), head(&b));
+    bring_objects(&b.dir, &a.dir);
+    bring_objects(&a.dir, &b.dir);
+    let out_a = a.ok(&["merge", &hb]);
+    let out_b = b.ok(&["merge", &ha]);
+    for out in [&out_a, &out_b] {
+        assert!(out.contains("merged") && !out.contains("renumbered"), "no id changes:\n{}", out);
+    }
+    let (pa, pb) = (a.ok(&["plan"]), b.ok(&["plan"]));
+    assert_eq!(pa, pb, "both ways give the same plan");
+    for id in ["t5m alice's root", "t6m alice's piece", "t5p bob's root", "t6p bob's piece", "t1 Help Dana"] {
+        assert!(pa.contains(id), "{} in:\n{}", id, pa);
+    }
+    // No two siblings share a position: four children under 1, numbered 1.1 to 1.5.
+    assert!(pa.contains("1.4 t6m") ^ pa.contains("1.4 t6p") && pa.contains("1.5 t6"), "{}", pa);
+    for p in [&a, &b] {
+        assert!(p.ok(&["show", "t6p"]).contains("r6p"));
+        assert!(p.ok(&["show", "t5m"]).contains("r5m"));
+    }
+    // Minting carries on past every number and position drawn: t5p and t6p
+    // took positions 7 and 8 from the counter.
+    let next = a.ok(&["add", "next"]);
+    assert!(next.contains(" t9m next"), "{}", next);
+}
+
+#[test]
+fn the_same_key_on_two_copies_refuses_the_merge() {
+    let a = Proj::new("samekey-a");
+    dana(&a);
+    a.ok(&["config", "ids", "keyed"]);
+    a.ok(&["key", "m"]);
+    let b = Proj::new("samekey-b");
+    copy_store(&a.dir, &b.dir); // the key file too: a copy made by hand, not by git
+    a.ok(&["add", "alice's root"]); // t5m
+    b.ok(&["add", "bob's root"]); // t5m as well
+    bring_objects(&b.dir, &a.dir);
+    let before = a.read(".tasks/HEAD");
+    for args in [vec!["merge", &head(&b), "--dry-run"], vec!["merge", &head(&b)]] {
+        let msg = a.fails(&args);
+        assert!(
+            msg.contains("t5m was made on both copies, which share the key `m`") && msg.contains("`tsk key <letters>`") && msg.contains("`tsk reset ") && msg.lines().count() == 1,
+            "{}",
+            msg
+        );
+    }
+    assert_eq!(a.read(".tasks/HEAD"), before, "nothing written");
+    assert!(a.ok(&["plan"]).contains("t5m alice's root"));
+}

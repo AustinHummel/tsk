@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 pub const DIR: &str = ".tasks";
 
 /// What is ignored inside the store when it is committed with git.
-const GITIGNORE: &str = "# transient files of a running tsk, its local reflog, and its disposable cache\nlock\nlock.broken-*\nlock.breaking-*\nHEAD.tmp*\nlog.tmp*\n*.EDIT\n*.tmp\nreflog\ncache/\nclaims/\n";
+const GITIGNORE: &str = "# transient files of a running tsk, its local reflog, and its disposable cache\nlock\nlock.broken-*\nlock.breaking-*\nHEAD.tmp*\nlog.tmp*\n*.EDIT\n*.tmp\nreflog\ncache/\nclaims/\nkey\n";
 
 /// Objects are named by the hash of their bytes: git must never convert
 /// their line endings. The log stays diffable.
@@ -27,6 +27,11 @@ const LOG_HEADER: &str = "# tsk event log: one line per event, oldest first. tim
 
 pub struct Store {
     pub dir: PathBuf,
+}
+
+/// A copy's key: 1 to 3 lowercase ASCII letters.
+pub fn valid_key(k: &str) -> bool {
+    (1..=3).contains(&k.len()) && k.chars().all(|c| c.is_ascii_lowercase())
 }
 
 /// One move of HEAD.
@@ -754,6 +759,36 @@ impl Store {
 
     pub fn config_value(&self, key: &str) -> Option<String> {
         self.read_config().ok().and_then(|c| c.get(key).cloned())
+    }
+
+    /// Whether the store is keyed (config `ids = keyed`, committed with it).
+    pub fn keyed(&self) -> bool {
+        self.config_value("ids").is_some_and(|v| v.trim() == "keyed")
+    }
+
+    /// This copy's key, from the untracked `.tasks/key`, when it holds one
+    /// that `valid_key` accepts.
+    pub fn key(&self) -> Option<String> {
+        let k = fs::read_to_string(self.dir.join("key")).ok()?.trim().to_string();
+        valid_key(&k).then_some(k)
+    }
+
+    /// How a command on this copy mints ids.
+    pub fn mint_key(&self) -> crate::plan::Key {
+        use crate::plan::Key;
+        match (self.keyed(), self.key()) {
+            (false, _) => Key::Bare,
+            (true, Some(k)) => Key::Keyed(k),
+            (true, None) => Key::Missing,
+        }
+    }
+
+    /// Set this copy's key: one line in `.tasks/key`, which git never
+    /// carries (each copy chooses its own).
+    pub fn set_key(&self, key: &str) -> Result<()> {
+        fs::write(self.dir.join("key"), format!("{}\n", key))?;
+        self.ensure_ignored("key");
+        Ok(())
     }
 
     /// The format the store declares; none (before 0.5.0) is 0.

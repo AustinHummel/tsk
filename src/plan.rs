@@ -18,6 +18,33 @@ pub struct Plan {
     /// code that adds a task or moves one calls `invalidate`.
     #[serde(skip)]
     index: RefCell<Option<Index>>,
+    /// How this copy mints ids: set from the store when a command loads the
+    /// plan, never saved (the plan is cached through serde).
+    #[serde(skip)]
+    pub key: Key,
+}
+
+/// The id form a copy mints. A keyed store (config `ids = keyed`) appends
+/// this copy's key (`.tasks/key`) to every new id: `t150m`, `r98m`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum Key {
+    /// Not a keyed store: bare ids, as before 0.7.0.
+    #[default]
+    Bare,
+    /// A keyed store, and this copy's letters.
+    Keyed(String),
+    /// A keyed store, and this copy has no key: minting is refused.
+    Missing,
+}
+
+/// The number in an id (`t150m` -> 150, `r7` -> 7); 0 when it has none.
+pub fn id_number(id: &str) -> u64 {
+    id.chars().skip(1).take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0)
+}
+
+/// Whether an id carries a writer's key (`t150m`).
+pub fn is_keyed_id(id: &str) -> bool {
+    id.chars().last().is_some_and(|c| c.is_ascii_lowercase())
 }
 
 /// Everything about the tree that is derived from `parent`, `seq` and the
@@ -91,15 +118,37 @@ impl Plan {
         Ok(hash)
     }
 
-    pub fn new_task_id(&mut self) -> TaskId {
+    /// A new task id in this copy's form: `t151`, or `t151m` on a keyed
+    /// store. Refused on a keyed store when this copy has no key.
+    pub fn new_task_id(&mut self) -> Result<TaskId> {
+        let suffix = self.key_suffix()?;
+        Ok(format!("{}{}", self.new_bare_task_id(), suffix))
+    }
+
+    pub fn new_req_id(&mut self) -> Result<ReqId> {
+        let suffix = self.key_suffix()?;
+        Ok(format!("{}{}", self.new_bare_req_id(), suffix))
+    }
+
+    /// A bare id from the counter, whatever the store: the merge's renames,
+    /// which every copy must compute alike.
+    pub fn new_bare_task_id(&mut self) -> TaskId {
         self.invalidate();
         self.next_task += 1;
         format!("t{}", self.next_task)
     }
 
-    pub fn new_req_id(&mut self) -> ReqId {
+    pub fn new_bare_req_id(&mut self) -> ReqId {
         self.next_req += 1;
         format!("r{}", self.next_req)
+    }
+
+    fn key_suffix(&self) -> Result<String> {
+        match &self.key {
+            Key::Bare => Ok(String::new()),
+            Key::Keyed(k) => Ok(k.clone()),
+            Key::Missing => bail!("this store is keyed and this copy has no key, so it cannot make ids; choose one with `tsk key <letters>` (1 to 3 lowercase letters no other copy uses), then run this again"),
+        }
     }
 
     // ----- structure -----------------------------------------------------

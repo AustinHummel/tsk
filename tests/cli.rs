@@ -333,3 +333,75 @@ fn completing_the_last_piece_under_an_ongoing_task_nudges_the_next() {
     p.ok(&["amend", "1", "Check 2028", "--fit", "the 2028 check", "--after", "2028-03-01"]);
     assert!(!p.ok(&["ready"]).contains("nothing open under it"));
 }
+
+// ----- 0.7: writer keys -----------------------------------------------------
+
+#[test]
+fn a_keyed_store_mints_ids_with_the_copys_key() {
+    let p = Proj::new("keyed");
+    let out = p.ok(&["key"]);
+    assert!(out.contains("this copy has no key") && out.contains("not keyed"), "{}", out);
+    for bad in ["M", "abcd", "m1", "é"] {
+        assert!(p.fails(&["key", bad]).contains("1 to 3 lowercase letters"), "{}", bad);
+    }
+    let events = p.ok(&["rev-list"]).lines().count();
+    p.ok(&["key", "m"]);
+    assert_eq!(p.read(".tasks/key").trim(), "m");
+    assert!(p.read(".tasks/.gitignore").lines().any(|l| l == "key"), "git never carries the key");
+    // Turning keys on is committed config, and raises the format: a binary
+    // that ignored `ids` would mint bare ids over keyed ones.
+    p.file(".tasks/config", "# tsk config: key = value\nformat = 2\n");
+    assert!(p.fails(&["config", "ids", "on"]).contains("`ids` takes `keyed`"));
+    p.ok(&["config", "ids", "keyed"]);
+    let cfg = p.read(".tasks/config");
+    assert!(cfg.contains("ids = keyed") && cfg.contains("format = 3"), "{}", cfg);
+    assert_eq!(p.ok(&["rev-list"]).lines().count(), events, "the key and the switch write no event");
+    assert!(p.ok(&["key"]).contains("this store is keyed"));
+    let js: serde_json::Value = serde_json::from_str(&p.ok(&["--json", "key"])).unwrap();
+    assert_eq!((js["key"].as_str(), js["keyed"].as_bool()), (Some("m"), Some(true)));
+    // Every new task and requirement id carries the key; the counter is the
+    // store's as before.
+    assert!(p.ok(&["add", "Help Dana", "--by", "Dana: fair picks"]).contains("1 t1m Help Dana"));
+    p.ok(&["amend", "t1m", "Build", "--fit", "the tool", "--core", "Ask Dana"]);
+    p.ok(&["link", "1.1", "1.2", "know before building"]);
+    let plan = p.ok(&["plan"]);
+    assert!(plan.contains(" t2m ") && plan.contains(" t3m ") && !plan.contains(" t2 "), "{}", plan);
+    let js: serde_json::Value = serde_json::from_str(&p.ok(&["--json", "show", "t1m"])).unwrap();
+    assert!(js.to_string().contains("r1m"), "{}", js);
+    assert!(p.ok(&["show", "1.2"]).contains("r2m"));
+}
+
+#[test]
+fn existing_ids_keep_their_form_when_keys_turn_on() {
+    let p = Proj::new("keys-on-later");
+    dana(&p); // t1 to t4, r1 to r4
+    p.ok(&["key", "p"]);
+    p.ok(&["config", "ids", "keyed"]);
+    let plan = p.ok(&["plan"]);
+    for id in ["1 t1 Help Dana", "1.1 t2 Gather", "1.2 t3 Build", "1.3 t4 Show"] {
+        assert!(plan.contains(id), "{} in:\n{}", id, plan);
+    }
+    assert!(p.ok(&["amend", "1", "Test it", "--fit", "checking"]).contains("1.4 t5p Test it"), "the counter carries on");
+    let out = p.ok(&["link", "t5p", "t4", "test before showing"]);
+    assert!(out.contains("r5p:"), "{}", out);
+    assert!(p.ok(&["show", "t2"]).contains("r2"), "old requirement ids stand");
+}
+
+#[test]
+fn a_keyless_copy_of_a_keyed_store_refuses_to_mint() {
+    let p = Proj::new("keyless");
+    dana(&p);
+    p.ok(&["config", "ids", "keyed"]);
+    let events = p.ok(&["rev-list"]).lines().count();
+    for args in [vec!["add", "x"], vec!["amend", "1", "y", "--fit", "z"], vec!["link", "1.3", "1.1", "no"], vec!["by", "1", "Eve", "wants it"]] {
+        let msg = p.fails(&args);
+        assert!(msg.contains("this store is keyed and this copy has no key") && msg.contains("`tsk key <letters>`") && msg.lines().count() == 1, "{:?}: {}", args, msg);
+    }
+    assert_eq!(p.ok(&["rev-list"]).lines().count(), events, "nothing written");
+    // Only id-making commands are refused.
+    p.ok(&["start", "1.1"]);
+    p.ok(&["edit", "1.2", "-b", "a body"]);
+    assert!(p.ok(&["plan"]).contains("[>] 1.1"));
+    p.ok(&["key", "q"]);
+    assert!(p.ok(&["add", "x"]).contains("t5q"));
+}

@@ -63,6 +63,8 @@ fn load(store: Store, lock: Option<Lock>) -> Result<Ctx> {
         None => (None, Plan::default(), std::collections::HashMap::new()),
         Some((h, ev)) => (Some(h.clone()), store.load_plan(&ev.snapshot)?, store.leaf_statuses_at(&h)?),
     };
+    let mut plan = plan;
+    plan.key = store.mint_key();
     // The one read of the clock: every date in this command is compared
     // against this moment.
     let derived = Derived::compute(&plan, &leaf, crate::clock::now()?);
@@ -189,8 +191,8 @@ pub(crate) fn done(store: &Store, hash: &Hash, msg: &str) {
     println!("{}", serde_json::to_string_pretty(&v).unwrap());
 }
 
-fn new_task(plan: &mut Plan, title: &str, parent: Option<TaskId>, body: String) -> TaskId {
-    let id = plan.new_task_id();
+fn new_task(plan: &mut Plan, title: &str, parent: Option<TaskId>, body: String) -> Result<TaskId> {
+    let id = plan.new_task_id()?;
     let seq = plan.next_task;
     plan.tasks.insert(
         id.clone(),
@@ -214,7 +216,7 @@ fn new_task(plan: &mut Plan, title: &str, parent: Option<TaskId>, body: String) 
             former: vec![],
         },
     );
-    id
+    Ok(id)
 }
 
 // ===== porcelain ===========================================================
@@ -242,7 +244,7 @@ pub fn add(title: String, body: Option<String>, by: Vec<String>, priority: Optio
     if by.is_empty() && require_by {
         bail!("every root needs --by here (config require.by)");
     }
-    let id = new_task(&mut c.plan, &title, None, body);
+    let id = new_task(&mut c.plan, &title, None, body)?;
     {
         let t = c.plan.tasks.get_mut(&id).unwrap();
         t.priority = priority;
@@ -256,7 +258,7 @@ pub fn add(title: String, body: Option<String>, by: Vec<String>, priority: Optio
     let noted = by.is_empty();
     for b in by {
         let (p, r) = parse_by(&b)?;
-        add_req(&mut c, Requirer::Person(p), id.clone(), r, false, false, None);
+        add_req(&mut c, Requirer::Person(p), id.clone(), r, false, false, None)?;
     }
     let h = c.commit(Commit::new(EventKind::Created, format!("add {}", title), vec![id.clone()]))?;
     done(&c.store, &h, &format!("created {}{}", c.plan.label(&id), if ongoing.is_some() { "  <ongoing>" } else { "" }));
@@ -350,7 +352,7 @@ fn split_leaf(c: &mut Ctx, pid: &TaskId, core: Option<String>, core_body: Option
         Some(b) => read_text(Some(b), false)?.unwrap_or_default(),
         None => host.body.clone(),
     };
-    let cid = new_task(&mut c.plan, &core, Some(pid.clone()), body);
+    let cid = new_task(&mut c.plan, &core, Some(pid.clone()), body)?;
     let t = c.plan.tasks.get_mut(&cid).unwrap();
     t.core_of = Some(pid.clone());
     t.fit = Some(format!("what {} was before {} was split out", host.title, new_titles.join(", ")));
@@ -459,7 +461,7 @@ pub fn breakdown(task: String, file: Option<String>, template: bool) -> Result<(
     let mut subjects = vec![id.clone()];
     let mut child_ids = Vec::new();
     for (title, body) in &bd.children {
-        let cid = new_task(&mut c.plan, title, Some(id.clone()), body.clone());
+        let cid = new_task(&mut c.plan, title, Some(id.clone()), body.clone())?;
         subjects.push(cid.clone());
         child_ids.push(cid);
     }
@@ -498,7 +500,7 @@ pub fn amend(parent: String, title: String, body: Option<String>, fit: Option<St
     let fit = parent_takes(&c, &pid, fit)?;
     let titles = vec![title.clone()];
     let core = split_leaf(&mut c, &pid, core, core_body, &titles)?;
-    let cid = new_task(&mut c.plan, &title, Some(pid.clone()), body);
+    let cid = new_task(&mut c.plan, &title, Some(pid.clone()), body)?;
     {
         let t = c.plan.tasks.get_mut(&cid).unwrap();
         t.fit = Some(fit.clone());
@@ -666,10 +668,10 @@ pub fn edit(task: String, file: Option<String>, body: Option<String>, title: Opt
     Ok(())
 }
 
-fn add_req(c: &mut Ctx, from: Requirer, on: TaskId, reason: String, blocking: bool, conditional: bool, from_item: Option<(TypeId, String)>) -> ReqId {
-    let rid = c.plan.new_req_id();
+fn add_req(c: &mut Ctx, from: Requirer, on: TaskId, reason: String, blocking: bool, conditional: bool, from_item: Option<(TypeId, String)>) -> Result<ReqId> {
+    let rid = c.plan.new_req_id()?;
     c.plan.reqs.insert(rid.clone(), Requirement { id: rid.clone(), from, on, reason, blocking, conditional, created: commit::now(), from_item, fields: Fields::new() });
-    rid
+    Ok(rid)
 }
 
 fn note_loops(c: &Ctx, before: usize) -> Result<()> {
@@ -689,7 +691,7 @@ pub fn link(pred: String, succ: String, reason: String, conditional: bool) -> Re
     }
     check_pred_finite(&c, &p)?;
     let before = c.derived.loops.len();
-    let rid = add_req(&mut c, Requirer::Task(s.clone()), p.clone(), reason.clone(), true, conditional, None);
+    let rid = add_req(&mut c, Requirer::Task(s.clone()), p.clone(), reason.clone(), true, conditional, None)?;
     let h = c.commit(Commit::new(EventKind::Linked, format!("link {} -> {}: {}", c.plan.number_of(&p), c.plan.number_of(&s), reason), vec![p.clone(), s.clone()]))?;
     if conditional {
         done(&c.store, &h, &format!("{}: {} is tentative until {} is complete", rid, c.plan.label(&s), c.plan.label(&p)));
@@ -720,7 +722,7 @@ pub fn require(from: String, on: String, reason: String) -> Result<()> {
     if f == o {
         bail!("a task cannot require something of itself");
     }
-    let rid = add_req(&mut c, Requirer::Task(f.clone()), o.clone(), reason.clone(), false, false, None);
+    let rid = add_req(&mut c, Requirer::Task(f.clone()), o.clone(), reason.clone(), false, false, None)?;
     let h = c.commit(Commit::new(EventKind::Required, format!("require {} of {}: {}", c.plan.number_of(&f), c.plan.number_of(&o), reason), vec![f.clone(), o.clone()]))?;
     done(&c.store, &h, &format!("{}: {} requires of {}: {}", rid, c.plan.label(&f), c.plan.label(&o), reason));
     Ok(())
@@ -729,7 +731,7 @@ pub fn require(from: String, on: String, reason: String) -> Result<()> {
 pub fn by(task: String, person: String, reason: String) -> Result<()> {
     let mut c = open_rw()?;
     let id = c.plan.resolve(&task)?;
-    let rid = add_req(&mut c, Requirer::Person(person.clone()), id.clone(), reason.clone(), false, false, None);
+    let rid = add_req(&mut c, Requirer::Person(person.clone()), id.clone(), reason.clone(), false, false, None)?;
     let h = c.commit(Commit::new(EventKind::Required, format!("{} requires {}: {}", person, c.plan.number_of(&id), reason), vec![id.clone()]))?;
     done(&c.store, &h, &format!("{}: {} required by {}", rid, c.plan.label(&id), person));
     Ok(())
@@ -1039,7 +1041,7 @@ pub fn apply(ty: String, task: String) -> Result<()> {
     }
     let mut subjects = vec![id.clone()];
     // core child: the task's own scope
-    let core = new_task(&mut c.plan, &format!("{} (core)", host.title), Some(id.clone()), host.body.clone());
+    let core = new_task(&mut c.plan, &format!("{} (core)", host.title), Some(id.clone()), host.body.clone())?;
     c.plan.tasks.get_mut(&core).unwrap().core_of = Some(id.clone());
     subjects.push(core.clone());
     // one child per item
@@ -1049,7 +1051,7 @@ pub fn apply(ty: String, task: String) -> Result<()> {
         if let Some(w) = &it.when {
             body = format!("When: {}{}{}", w, if body.is_empty() { "" } else { "\n\n" }, body);
         }
-        let cid = new_task(&mut c.plan, &it.title, Some(id.clone()), body);
+        let cid = new_task(&mut c.plan, &it.title, Some(id.clone()), body)?;
         let child = c.plan.tasks.get_mut(&cid).unwrap();
         child.from_item = Some((ty.clone(), it.id.clone()));
         child.docs = t.docs.iter().chain(it.docs.iter()).cloned().collect();
@@ -1067,11 +1069,11 @@ pub fn apply(ty: String, task: String) -> Result<()> {
             } else {
                 c.plan.resolve(&r.on)?
             };
-            add_req(&mut c, Requirer::Task(cid.clone()), on, r.reason.clone(), r.blocking, false, Some((ty.clone(), it.id.clone())));
+            add_req(&mut c, Requirer::Task(cid.clone()), on, r.reason.clone(), r.blocking, false, Some((ty.clone(), it.id.clone())))?;
         }
         if let Some(p) = &it.pending {
             let on = c.plan.resolve(p)?;
-            add_req(&mut c, Requirer::Task(cid.clone()), on, format!("tentative: {} exists only if {} says so", it.title, p), true, true, Some((ty.clone(), it.id.clone())));
+            add_req(&mut c, Requirer::Task(cid.clone()), on, format!("tentative: {} exists only if {} says so", it.title, p), true, true, Some((ty.clone(), it.id.clone())))?;
         }
     }
     // Existing requirements on the host stay on it: every child inherits them.
@@ -1474,10 +1476,57 @@ pub fn config(key: Option<String>, value: Option<String>) -> Result<()> {
             None => bail!("{} is not set", k),
         },
         (Some(k), Some(v)) => {
+            if k == "ids" {
+                // Keys on: a binary that ignored `ids` would mint bare ids
+                // over keyed ones, so this write raises the format too.
+                if v.trim() != "keyed" {
+                    bail!("`ids` takes `keyed` (writer keys on: every new id carries this copy's key), not `{}`", v);
+                }
+                if store.format() < crate::store::FORMAT {
+                    cfg.insert("format".to_string(), crate::store::FORMAT.to_string());
+                }
+            }
             cfg.insert(k, v);
             store.write_config(&cfg)?;
         }
     }
+    Ok(())
+}
+
+/// `tsk key`: print this copy's key, or set it. No event and no lock: the
+/// key belongs to this copy, never to the history.
+pub fn key(letters: Option<String>, json: bool) -> Result<()> {
+    let store = store_open()?;
+    let keyed = store.keyed();
+    let Some(k) = letters else {
+        let cur = store.key();
+        if json {
+            println!("{}", serde_json::to_string_pretty(&json!({"key": cur, "keyed": keyed}))?);
+            return Ok(());
+        }
+        match &cur {
+            Some(k) => println!("this copy's key: {}", k),
+            None => println!("this copy has no key"),
+        }
+        if keyed {
+            println!("this store is keyed: new ids carry the key (t150{})", cur.as_deref().unwrap_or("m"));
+        } else {
+            println!("this store is not keyed: new ids are bare (t150); `tsk config ids keyed` turns keys on");
+        }
+        return Ok(());
+    };
+    if !crate::store::valid_key(&k) {
+        bail!("a key is 1 to 3 lowercase letters (a to z), not `{}`", k);
+    }
+    let was = store.key();
+    store.set_key(&k)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&json!({"key": k, "was": was, "keyed": keyed}))?);
+        return Ok(());
+    }
+    let was = was.filter(|w| *w != k).map(|w| format!(" (was {})", w)).unwrap_or_default();
+    let note = if keyed { format!("new ids carry it: t150{}", k) } else { "used once the store is keyed (`tsk config ids keyed`)".to_string() };
+    println!("this copy's key is {}{}; {}", k, was, note);
     Ok(())
 }
 

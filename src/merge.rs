@@ -17,7 +17,7 @@
 use crate::commands::{done, json_mode, say, store_open};
 use crate::commit::{self, Commit};
 use crate::model::*;
-use crate::plan::Plan;
+use crate::plan::{id_number, is_keyed_id, Plan};
 use crate::store::{Lock, Store};
 use anyhow::{anyhow, bail, Context as _, Result};
 use serde_json::json;
@@ -82,6 +82,8 @@ struct Replay {
     conflicts: Vec<String>,
     resolved: usize,
     renumbered: Vec<(Side, String, String)>,
+    /// A keyed id made on both sides: the merge is refused.
+    clash: Option<String>,
 }
 
 impl Replay {
@@ -156,13 +158,30 @@ impl Replay {
 
     fn task_added(&mut self, t: &Task) {
         let mut nt = t.clone();
-        let num: u64 = t.id.trim_start_matches('t').parse().unwrap_or(0);
+        let num = id_number(&t.id);
+        if is_keyed_id(&t.id) {
+            // A keyed id is never renamed. Made on both sides, it is the
+            // same key on two copies: refused. Otherwise it keeps its id and,
+            // when the counter has passed its number (the other copy minted
+            // that number under its own key), takes the next position, so
+            // no two siblings share a sequence number.
+            if self.plan.tasks.contains_key(&t.id) {
+                self.clash.get_or_insert_with(|| t.id.clone());
+                return;
+            }
+            if num > self.plan.next_task {
+                self.plan.next_task = num;
+            } else {
+                self.plan.next_task += 1;
+                nt.seq = self.plan.next_task;
+            }
         // Renumber when the id is taken, or when the merged line's counter
         // has already passed it (an `adopt` draws a sequence number from
         // the counter without creating a task), so no two tasks share a
-        // sequence number.
-        if self.plan.tasks.contains_key(&t.id) || num <= self.plan.next_task {
-            nt.id = self.plan.new_task_id();
+        // sequence number. The new id is bare on any store: every copy
+        // must compute the same one.
+        } else if self.plan.tasks.contains_key(&t.id) || num <= self.plan.next_task {
+            nt.id = self.plan.new_bare_task_id();
             nt.seq = self.plan.next_task;
             self.tmap.insert((self.side, t.id.clone()), nt.id.clone());
             self.renumbered.push((self.side, t.id.clone(), nt.id.clone()));
@@ -217,9 +236,13 @@ impl Replay {
 
     fn req_added(&mut self, r: &Requirement) {
         let mut nr = r.clone();
-        let num: u64 = r.id.trim_start_matches('r').parse().unwrap_or(0);
+        let num = id_number(&r.id);
+        if is_keyed_id(&r.id) && self.plan.reqs.contains_key(&r.id) {
+            self.clash.get_or_insert_with(|| r.id.clone());
+            return;
+        }
         if self.plan.reqs.contains_key(&r.id) {
-            nr.id = self.plan.new_req_id();
+            nr.id = self.plan.new_bare_req_id();
             self.rmap.insert((self.side, r.id.clone()), nr.id.clone());
             self.renumbered.push((self.side, r.id.clone(), nr.id.clone()));
         } else if num > self.plan.next_req {
@@ -316,7 +339,7 @@ impl Replay {
             }
         }
         let mut radded: Vec<&Requirement> = post_plan.reqs.values().filter(|r| !pre.reqs.contains_key(&r.id)).collect();
-        radded.sort_by_key(|r| r.id.trim_start_matches('r').parse::<u64>().unwrap_or(0));
+        radded.sort_by_key(|r| (id_number(&r.id), r.id.clone()));
         for r in radded {
             self.req_added(r);
         }
@@ -455,7 +478,7 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
     let start_ev: Event = store.read_object(ObjectType::Event, &start_hash)?;
     let start_snap = store.read_snapshot(&start_ev.snapshot).with_context(|| format!("event {}", &start_hash[..10]))?;
     let plan = Plan::load(store, &start_snap)?;
-    let mut rp = Replay { plan, side: Side::Ours, tmap: HashMap::new(), rmap: HashMap::new(), prefer, conflicts: Vec::new(), resolved: 0, renumbered: Vec::new() };
+    let mut rp = Replay { plan, side: Side::Ours, tmap: HashMap::new(), rmap: HashMap::new(), prefer, conflicts: Vec::new(), resolved: 0, renumbered: Vec::new(), clash: None };
     let mut staged: Vec<(Item, Event, Plan)> = Vec::new();
     for item in all.drain(keep..) {
         rp.side = item.side;
@@ -482,6 +505,15 @@ pub fn perform(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool
             out.ours_rewritten += 1;
         }
         staged.push((item, replayed, rp.plan.clone()));
+    }
+    if let Some(id) = &rp.clash {
+        let key: String = id.chars().skip_while(|c| !c.is_ascii_digit()).skip_while(|c| c.is_ascii_digit()).collect();
+        bail!(
+            "{} was made on both copies, which share the key `{}`, and a keyed id is never renamed, so nothing was written: on one copy choose a key no other copy uses (`tsk key <letters>`), `tsk reset {}` there to undo its work since the fork, add that work again, and merge",
+            id,
+            key,
+            &base[..10]
+        );
     }
     out.conflicts = rp.conflicts.clone();
     out.resolved = rp.resolved;

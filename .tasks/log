@@ -192,3 +192,5 @@
 2026-11-19T20:18:33Z  e9ed8d63b5  started          start 12.2  [12.2]  -- opus tsk-0.7.0-U2U3 2026-11-19
 2026-11-19T20:21:53Z  96c73c8613  completed        complete 12.2  [12.2]  -- opus tsk-0.7.0-U2U3 2026-11-19
 2026-11-19T20:21:53Z  f7c7c288a1  created          add parallel_writers_never_lose_an_event failed once on Windows CI  [13]  -- opus tsk-0.7.0-U2U3 2026-11-19
+2026-11-19T20:22:01Z  56c89fcb33  started          start 12.3  [12.3]  -- side mac-mini 2026-11-11
+2026-11-19T20:28:10Z  4ff6b3ee49  completed        complete 12.3  [12.3]  -- opus tsk-0.7.0-U2U3 2026-11-19
