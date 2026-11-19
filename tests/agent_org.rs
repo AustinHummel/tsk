@@ -25,9 +25,11 @@ fn parallel_writers_never_lose_an_event() {
     assert_eq!(log.lines().filter(|l| !l.starts_with('#')).count(), 17, "{}", log);
     assert!(log.contains("-- agent-7"), "events carry each agent's identity:\n{}", log);
     assert!(!p.dir.join(".tasks/lock").exists(), "the lock is released");
-    // A lock held by a live process is waited on, then reported.
-    std::fs::write(p.dir.join(".tasks/lock"), format!("pid {}\n", std::process::id())).unwrap();
+    // A lock held by a live tsk is waited on, then reported.
+    let live = common::LiveTsk::new();
+    std::fs::write(p.dir.join(".tasks/lock"), format!("pid {}\n", live.pid())).unwrap();
     let (ok, text) = p.run_from(&p.dir, &[("TSK_LOCK_TIMEOUT", "1")], &["add", "blocked"]);
+    drop(live);
     assert!(!ok && text.contains("locked by another tsk"), "{}", text);
     // One whose process has exited (a crash) is broken at once; one too old
     // to tell is broken after `lock.stale`.

@@ -334,7 +334,10 @@ driver that resolves a `HEAD` conflict by recording the other side as
 pending (`merge <hash>` on HEAD's second line), so `git pull` never
 blocks, and the next tsk command performs the merge (a read warns and
 shows our side if it conflicts; a write refuses until `tsk merge
---prefer` settles it). Without the driver, `tsk merge` with no arguments
+--prefer` settles it). HEAD records one pending merge at a time: a second
+git merge before tsk has settled the first is refused by the driver,
+nothing changed, with the way out (undo it, `tsk merge`, commit `.tasks`,
+merge again). Without the driver, `tsk merge` with no arguments
 reads the conflict markers git left in `HEAD`. The log merges as a union
 and is rebuilt from history after a merge, or whenever it is found out of
 step. After either path, commit `.tasks/` as usual.

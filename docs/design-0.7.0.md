@@ -224,16 +224,38 @@ An unkeyed store's driver is unchanged in every case.
 
 - git gives the driver nothing to tell a merge from a cherry-pick,
   revert or `stash pop`, so the side is decided at settling (added after
-  the blind review, 2026-11-19): the shared line is the store HEAD
-  committed at config `shared` (default `origin/main`; a side branch's
-  `@{upstream}` is not it). Theirs holds it: settled as recorded. Only
-  ours holds it: settled with the sides swapped, and the report says so.
-  Neither, or the ref can't be read: a write is refused, nothing
-  written, naming `tsk config shared <ref>` and `tsk merge --upstream`
-  (an explicit `--upstream` is the user saying theirs is the shared
-  line, and is not checked); a read shows our side. When both hold it,
-  everything past it is unpublished on both sides and either order
-  moves nothing published.
+  the blind review, 2026-11-19; widened after the second review the
+  same day). The published lines, in order: the store HEAD committed at
+  config `shared` (default `origin/main`), then at the current branch's
+  `@{upstream}` (a side branch's `origin/side/x`; the first rule ignored
+  it, so a side-branch pull with `origin/main` ahead of both sides was
+  refused). A side is on a line when it holds that head, or the line
+  holds the side (a `git fetch` since moved the ref past it; events this
+  copy lacks are read from git at the ref). The first line exactly one
+  side is on decides: theirs, settled as recorded; ours, settled with
+  the sides swapped, and the report says so. A line both or neither
+  side is on does not decide. When none decides: settled as recorded if
+  both sides are on one of them (past it nothing is published, so
+  either order moves nothing published); otherwise a write is refused,
+  nothing written, naming `tsk config shared <ref>` and `tsk merge
+  --upstream` (an explicit `--upstream` is the user saying theirs is the
+  shared line, and is not checked); a read shows our side. In a swapped
+  merge the report and `--prefer` keep git's sides: ours is HEAD (the
+  shared line), theirs the stash or the picked commit.
+- **HEAD records one pending merge** (second review, 2026-11-19). The
+  first driver read only the first line of each side, so a second git
+  merge before tsk settled the first replaced its marker and dropped
+  the other line's events. The driver never drops a line now: when
+  theirs adds nothing, `%A` is left as it is; when ours has no merge
+  pending, one is recorded; when ours already holds one, or theirs
+  carries its own, it refuses (exit 1, `%A` untouched, git stops) with
+  the way out: undo the git command, `tsk merge`, commit `.tasks`,
+  merge again (for theirs: settle it on a branch of its own first). It
+  cannot settle both: theirs' objects are not in the working tree while
+  the driver runs. Settling refuses a HEAD file that names more than
+  one line (git's markers over a pending merge, without the driver),
+  and `tsk merge <hash>` refuses over a different pending one, nothing
+  written.
 - A machine with no driver gets conflict markers; settling them during a
   rebase is not refused.
 - Our own unpublished `Merged` events are markers and are not replayed
@@ -245,6 +267,8 @@ An unkeyed store's driver is unchanged in every case.
 - The driver leaves the marker in the commit git makes. The replay
   happens at the next tsk command and is uncommitted work until the
   session commits it. A copy that pushes before that hands the settling
-  to whoever pulls.
+  to whoever pulls; one who has a merge of its own to record is refused
+  by the driver until the pushed one is settled ("HEAD records one
+  pending merge", above).
 - The shared line is only as current as the last `git fetch`: events
   pushed since are not known to be published.

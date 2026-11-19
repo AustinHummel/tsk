@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Started",
+  "parent": "796867419445e3e98b0023e5cd905a6b15c5156bc1f4755cc87a4ad957c2c106",
+  "snapshot": "7c73dd5317ca369e9a71e828a46bc02d6501ad224318ff440a6d83e5f4306a35",
+  "time": "2026-11-19T22:11:47Z",
+  "author": "opus tsk-0.7.0-fixes-2 2026-11-19",
+  "message": "start 12.8",
+  "subjects": [
+    "t110"
+  ],
+  "forced": false
+}

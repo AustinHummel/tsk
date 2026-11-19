@@ -202,3 +202,6 @@
 2026-11-19T21:35:18Z  73abfba8e6  amended          amend 12 with A status changed on both sides is a merge conflict  [12 12.7]  -- opus tsk-0.7.0-status-conflict 2026-11-19
 2026-11-19T21:35:24Z  96fe3550c8  started          start 12.7  [12.7]  -- opus tsk-0.7.0-status-conflict 2026-11-19
 2026-11-19T21:35:24Z  43c935f83e  completed        complete 12.7  [12.7]  -- opus tsk-0.7.0-status-conflict 2026-11-19
+2026-11-19T22:11:41Z  7968674194  amended          amend 12 with Fix the second blind review's three defects  [12 12.8]  -- opus tsk-0.7.0-fixes-2 2026-11-19
+2026-11-19T22:11:47Z  8892feab77  started          start 12.8  [12.8]  -- opus tsk-0.7.0-fixes-2 2026-11-19
+2026-11-19T22:11:47Z  3a027ce6ab  completed        complete 12.8  [12.8]  -- opus tsk-0.7.0-fixes-2 2026-11-19

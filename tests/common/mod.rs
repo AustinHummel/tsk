@@ -98,3 +98,30 @@ pub fn dana(p: &Proj) {
     p.ok(&["link", "1.1", "1.2", "do we need help"]);
     p.ok(&["link", "1.2", "1.3", "build before showing"]);
 }
+
+/// A tsk process that stays alive until dropped: `add --body -` waits on
+/// stdin, before it opens any store. Its pid stands for a live writer's.
+pub struct LiveTsk(std::process::Child);
+
+impl LiveTsk {
+    pub fn new() -> LiveTsk {
+        let child = tsk()
+            .args(["--store", &std::env::temp_dir().join("tsk-test-no-store").to_string_lossy(), "add", "waiting", "--body", "-"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        LiveTsk(child)
+    }
+    pub fn pid(&self) -> u32 {
+        self.0.id()
+    }
+}
+
+impl Drop for LiveTsk {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}

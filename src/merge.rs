@@ -454,11 +454,14 @@ impl Pair {
 /// event stays, so the original it stands for is still on the line), and
 /// the preferred side's status stands. Returns every pair, settled or not;
 /// conflicts go to `conflicts`, resolutions to `resolved`.
-fn settle_status(ours: &Sets, theirs: &Sets, prefer: Option<Side>, staged: &mut [(Item, Event, Plan)], plan: &Plan, conflicts: &mut Vec<String>, resolved: &mut usize) -> Vec<Pair> {
+fn settle_status(replayed: &Sets, line: &Sets, rside: Side, prefer: Option<Side>, staged: &mut [(Item, Event, Plan)], plan: &Plan, conflicts: &mut Vec<String>, resolved: &mut usize) -> Vec<Pair> {
     let say = |s: &(Status, EventKind, String)| format!("{}, {} at {}", s.0.name(), s.1.name(), s.2);
     let mut pairs = Vec::new();
-    for (id, o) in ours {
-        let Some(t) = theirs.get(id) else { continue };
+    for (id, r) in replayed {
+        let Some(l) = line.get(id) else { continue };
+        // In git's terms: the replayed side is ours unless the sides were
+        // swapped, so the report and `--prefer` name the sides as git does.
+        let (o, t) = if rside == Side::Ours { (r, l) } else { (l, r) };
         let mut p = Pair { id: id.clone(), ours: o.clone(), theirs: t.clone(), preferred: None };
         if !p.agree() {
             match prefer {
@@ -605,7 +608,7 @@ fn perform_canonical(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run
     // already, and before every event of theirs; staged subjects are mapped.
     let our_sets = sets(all.iter().map(|i| &i.ev).chain(staged.iter().filter(|(i, _, _)| i.side == Side::Ours).map(|(_, e, _)| e)));
     let their_sets = sets(staged.iter().filter(|(i, _, _)| i.side == Side::Theirs).map(|(_, e, _)| e));
-    let pairs = settle_status(&our_sets, &their_sets, prefer, &mut staged, &rp.plan, &mut rp.conflicts, &mut rp.resolved);
+    let pairs = settle_status(&our_sets, &their_sets, Side::Ours, prefer, &mut staged, &rp.plan, &mut rp.conflicts, &mut rp.resolved);
     for p in &pairs {
         if p.agree() || p.preferred.is_some() {
             out.both_touched.push(format!("{}: ours {} at {}, theirs {} at {}; {}", rp.plan.label(&p.id), p.ours.1.name(), p.ours.2, p.theirs.1.name(), p.theirs.2, p.how()));
@@ -741,12 +744,12 @@ fn write_staged(store: &Store, staged: Vec<(Item, Event, Plan)>, start: &Hash, o
 
 /// Each task of our plan before the merge whose outline number differs on
 /// the merged plan (followed through a rename of ours).
-fn moved(before: &Plan, after: &Plan, tmap: &HashMap<(Side, TaskId), TaskId>) -> Vec<(TaskId, String, String)> {
+fn moved(before: &Plan, after: &Plan, tmap: &HashMap<(Side, TaskId), TaskId>, side: Side) -> Vec<(TaskId, String, String)> {
     let (b, a) = (before.numbering(), after.numbering());
     let mut v: Vec<(TaskId, String, String)> = b
         .iter()
         .filter_map(|(id, from)| {
-            let now = tmap.get(&(Side::Ours, id.clone())).unwrap_or(id);
+            let now = tmap.get(&(side, id.clone())).unwrap_or(id);
             let to = a.get(now)?;
             (to != from).then(|| (id.clone(), from.clone(), to.clone()))
         })
@@ -762,6 +765,9 @@ fn moved(before: &Plan, after: &Plan, tmap: &HashMap<(Side, TaskId), TaskId>) ->
 /// a fast-forward to their head.
 fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run: bool, swap: Option<String>) -> Result<Outcome> {
     let mut out = Outcome { upstream: true, swapped: swap.clone(), ..Outcome::default() };
+    // The side whose events are replayed, in git's terms: ours, or theirs
+    // when the sides are swapped (the shared line was our HEAD).
+    let rside = if swap.is_some() { Side::Theirs } else { Side::Ours };
     let head = store.head()?.ok_or_else(|| anyhow!("no HEAD"))?;
     if !store.has_object(theirs) {
         bail!("event {} is not in this store (fetch or pull first: the objects arrive with git)", &theirs[..10]);
@@ -789,7 +795,7 @@ fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run:
         .iter()
         .rev()
         .filter(|(h, e)| !is_marker(e.kind) && !on_theirs.contains(h) && !on_theirs.contains(&identity(h, e)))
-        .map(|(h, e)| Item { id: identity(h, e), hash: h.clone(), ev: e.clone(), side: Side::Ours })
+        .map(|(h, e)| Item { id: identity(h, e), hash: h.clone(), ev: e.clone(), side: rside })
         .collect();
     let before = store.load_plan(&our_hist[0].1.snapshot)?;
     let their_snap = &their_hist[0].1.snapshot;
@@ -807,7 +813,7 @@ fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run:
         out.head = Some(theirs.clone());
         out.replayed = their_hist.iter().take_while(|(h, _)| !our_hashes.contains(h)).map(|(h, _)| (h.clone(), h.clone())).collect();
         let merged = store.load_plan(their_snap)?;
-        out.moved = moved(&before, &merged, &HashMap::new());
+        out.moved = moved(&before, &merged, &HashMap::new(), rside);
         if !dry_run {
             store.advance_head(Some(&head), theirs, &format!("merge {} (fast-forward)", &theirs[..10]))?;
             let history = store.history()?;
@@ -835,12 +841,12 @@ fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run:
     // because it is replayed after theirs, so a disagreement is a conflict.
     let their_sets = sets(their_new.iter().copied());
     let our_sets = sets(staged.iter().map(|(_, e, _)| e));
-    let pairs = settle_status(&our_sets, &their_sets, prefer, &mut staged, &rp.plan, &mut rp.conflicts, &mut rp.resolved);
+    let pairs = settle_status(&our_sets, &their_sets, rside, prefer, &mut staged, &rp.plan, &mut rp.conflicts, &mut rp.resolved);
     out.conflicts = rp.conflicts.clone();
     out.resolved = rp.resolved;
     out.renumbered = rp.renumbered.clone();
     out.replayed = staged.iter().map(|(i, _, _)| (i.hash.clone(), String::new())).collect();
-    out.moved = moved(&before, &rp.plan, &rp.tmap);
+    out.moved = moved(&before, &rp.plan, &rp.tmap, rside);
     // Say what each task touched on both sides ends in, and whether the
     // event that stands is the older one.
     let mut ends = crate::state::leaf_statuses(&their_hist);
@@ -849,7 +855,8 @@ fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run:
     }
     for p in pairs.iter().filter(|p| p.agree() || p.preferred.is_some()) {
         let end = ends.get(&p.id).map(|s| s.name()).unwrap_or("todo");
-        let (stands, other) = if p.preferred == Some(Side::Theirs) { (&p.theirs.2, &p.ours.2) } else { (&p.ours.2, &p.theirs.2) };
+        let stands_side = p.preferred.unwrap_or(rside);
+        let (stands, other) = if stands_side == Side::Theirs { (&p.theirs.2, &p.ours.2) } else { (&p.ours.2, &p.theirs.2) };
         out.both.push(Both {
             id: p.id.clone(),
             ends: end,
@@ -936,7 +943,9 @@ fn report(store: &Store, theirs: &Hash, out: &Outcome, dry_run: bool) {
     for b in out.both_touched.iter().chain(out.both.iter().map(|b| &b.text)) {
         say(&format!("status on both sides: {}", b));
     }
-    if out.upstream && out.ours_rewritten > 0 {
+    if out.upstream && out.swapped.is_some() && !out.replayed.is_empty() {
+        say(&format!("{} of their event(s) replayed after the shared line (new hashes; ids unchanged unless listed)", out.replayed.len()));
+    } else if out.upstream && out.ours_rewritten > 0 {
         say(&format!("{} of our event(s) replayed after the shared line (new hashes; ids unchanged unless listed)", out.ours_rewritten));
     } else if out.ours_rewritten > 0 {
         say(&format!("{} of our event(s) take a new place in chronological order (new hashes; ids unchanged unless listed)", out.ours_rewritten));
@@ -969,6 +978,7 @@ pub fn merge(theirs: Option<String>, prefer: Option<String>, dry_run: bool, git:
         (None, false) => hf.to_merge().ok_or_else(|| anyhow!("nothing to merge: name the other HEAD (`tsk merge <event>`), or run during a git merge (`--git`)"))?,
     };
     let ours = hf.ours.clone().ok_or_else(|| anyhow!("no HEAD"))?;
+    one_to_merge(&hf, &theirs)?;
     let was_pending = hf.conflicted || hf.pending.is_some();
     let swap = if inferred { orient(&store, &ours, &theirs)? } else { None };
     let out = perform(&store, &theirs, prefer, dry_run, upstream, swap)?;
@@ -1001,37 +1011,117 @@ fn swapped_note(r: &str) -> String {
     format!("sides swapped: the shared line ({}) was our HEAD, not theirs, as after a stash pop or a cherry-pick, so it was kept and theirs replayed after it", r)
 }
 
-/// Which side of a merge that came through git holds the shared line: the
-/// store HEAD committed at the shared ref. git's sides are ours and theirs
-/// in a merge or a pull, but the other way round in a stash pop or a
-/// cherry-pick, and the driver cannot tell them apart. Theirs holds it:
-/// settle as recorded (None). Only ours holds it: settle with the sides
-/// swapped (the ref's name). Neither, or the ref can't be read: refused,
-/// nothing written.
+/// tsk settles one merge at a time, and settling writes HEAD as one line:
+/// a HEAD file that names any other line than `theirs` would lose it, so
+/// that is refused, nothing written.
+fn one_to_merge(hf: &crate::store::HeadFile, theirs: &Hash) -> Result<()> {
+    let others: Vec<&Hash> = hf.named.iter().filter(|h| *h != theirs).collect();
+    if others.is_empty() {
+        return Ok(());
+    }
+    let short = |h: &Hash| h[..h.len().min(10)].to_string();
+    if hf.named.len() == 1 {
+        bail!(
+            "a merge of {} is pending in .tasks/HEAD, and merging {} over it would drop it, so nothing was written: settle it first with `tsk merge`, then merge {}",
+            short(others[0]),
+            short(theirs),
+            short(theirs)
+        );
+    }
+    let all: Vec<String> = hf.named.iter().map(short).collect();
+    bail!(
+        ".tasks/HEAD names {} lines to merge ({}), and tsk settles one at a time, so nothing was written: git merged it without tsk's driver while a merge was still unsettled; run `git merge --abort`, then `tsk merge` to settle {}, commit `.tasks`, run `tsk git-setup` so git calls tsk's driver, and run the git merge again",
+        all.len(),
+        all.join(", "),
+        all[0]
+    )
+}
+
+/// Whether the line whose head `s` is committed at git ref `r` holds the
+/// event `h`. Events this copy does not have yet (fetched, not merged) are
+/// read from git at `r` until the walk reaches one it has. Anything that
+/// cannot be read counts as not held.
+fn line_holds(store: &Store, r: &str, s: &Hash, h: &Hash) -> bool {
+    let root = store.root();
+    let git = |args: &[&str]| -> Option<String> {
+        let out = std::process::Command::new("git").arg("-C").arg(&root).args(args).output().ok()?;
+        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).to_string())
+    };
+    let Some(prefix) = git(&["rev-parse", "--show-prefix"]) else { return false };
+    let mut cur = Some(s.clone());
+    while let Some(c) = cur {
+        if &c == h {
+            return true;
+        }
+        if store.has_object(&c) {
+            return store.history_from(Some(c)).map(|hist| hist.iter().any(|(x, _)| x == h)).unwrap_or(false);
+        }
+        let Some(text) = git(&["show", &format!("{}:{}{}/objects/{}/{}", r, prefix.trim(), crate::store::DIR, &c[..2], &c[2..])]) else { return false };
+        let Some(ev) = text.split_once('\n').and_then(|(_, json)| serde_json::from_str::<Event>(json).ok()) else { return false };
+        cur = ev.parent;
+    }
+    false
+}
+
+/// The current branch's upstream (`origin/side/x`), if it has one.
+fn upstream_ref(store: &Store) -> Option<String> {
+    let out = std::process::Command::new("git").arg("-C").arg(store.root()).args(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).output().ok()?;
+    let r = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !r.is_empty()).then_some(r)
+}
+
+/// Which side of a merge that came through git holds a published line.
+/// git's sides are ours and theirs in a merge or a pull, but the other way
+/// round in a stash pop or a cherry-pick, and the driver cannot tell them
+/// apart. The published lines, in order: the store HEAD committed at the
+/// shared ref (config `shared`, default `origin/main`), then at the current
+/// branch's upstream (a side branch's `origin/side/x`). A side is on a line
+/// when it holds that head or the line holds the side (a fetch since moved
+/// the ref past it). The first line exactly one side is on decides: theirs,
+/// settle as recorded (None); ours, settle with the sides swapped (the
+/// ref's name). A line both or neither side is on does not decide, and the
+/// next is asked. When none decides: settled as recorded if both sides are
+/// on one of them (past it nothing is published on either side, so either
+/// order moves nothing published); otherwise refused, nothing written.
 fn orient(store: &Store, ours: &Hash, theirs: &Hash) -> Result<Option<String>> {
     let holds = |line: &Hash, h: &Hash| -> Result<bool> { Ok(store.history_from(Some(line.clone()))?.iter().any(|(x, _)| x == h)) };
     // Missing, or already on our line: the merge itself says so.
     if !store.has_object(theirs) || holds(ours, theirs)? {
         return Ok(None);
     }
-    let r = shared_ref(store);
+    let mut refs = vec![shared_ref(store)];
+    if let Some(u) = upstream_ref(store) {
+        if !refs.contains(&u) {
+            refs.push(u);
+        }
+    }
     let way = format!("name the shared line with `tsk config shared <ref>`, or, if {} is the shared line, run `tsk merge --upstream`", &theirs[..10]);
-    let s = crate::views::git_head_at(store, &r)
-        .map_err(|e| anyhow!("tsk cannot read the shared line's store head at {} ({}), so it cannot tell which side of this merge to keep, and nothing was written: run `git fetch`, {}", r, e, way))?;
-    if holds(theirs, &s)? {
+    let (mut both, mut unread, mut held) = (false, Vec::new(), Vec::new());
+    for r in &refs {
+        let s = match crate::views::git_head_at(store, r) {
+            Ok(s) => s,
+            Err(e) => {
+                unread.push(format!("at {} ({})", r, e));
+                continue;
+            }
+        };
+        // A side is on the published line when it holds the line's head, or
+        // the line holds it (a fetch since moved the ref on past it).
+        let on = |side: &Hash| -> Result<bool> { Ok(holds(side, &s)? || line_holds(store, r, &s, side)) };
+        match (on(theirs)?, on(ours)?) {
+            (true, false) => return Ok(None),
+            (false, true) => return Ok(Some(r.clone())),
+            (true, true) => both = true,
+            (false, false) => held.push(format!("{} at {}", &s[..10], r)),
+        }
+    }
+    if both {
         return Ok(None);
     }
-    if holds(ours, &s)? {
-        return Ok(Some(r));
+    if held.is_empty() {
+        bail!("tsk cannot read the shared line's store head {}, so it cannot tell which side of this merge to keep, and nothing was written: run `git fetch`, {}", unread.join(", nor "), way);
     }
-    bail!(
-        "neither side of this merge holds the shared line's store head ({} at {}), so tsk cannot tell which side to keep, and nothing was written: merge {} first (`git merge {}`), {}",
-        &s[..10],
-        r,
-        r,
-        r,
-        way
-    )
+    bail!("neither side of this merge holds a published line's store head ({}), so tsk cannot tell which side to keep, and nothing was written: {}", held.join(", "), way)
 }
 
 /// Settle a pending merge named in HEAD before a command runs. For a
@@ -1058,6 +1148,7 @@ pub fn settle_pending(store: &Store, writing: bool) -> Result<()> {
     // shared line can't be told, or a live writer holds the claim) shows
     // our side; only a write is refused.
     let settled = (|| {
+        one_to_merge(&hf, &theirs)?;
         let swap = if store.keyed() { orient(store, &ours, &theirs)? } else { None };
         perform(store, &theirs, None, false, store.keyed(), swap)
     })();
@@ -1135,21 +1226,73 @@ pub fn merge_driver(ours_path: String, theirs_path: String, path: Option<String>
     if Store::at(&dir).is_ok_and(|s| s.keyed()) && rebasing() {
         bail!("this store is keyed and git is rebasing, which swaps the sides, so the shared line would be replayed instead of kept; run `git rebase --abort`, then `git merge <the shared line>`");
     }
-    let first = |p: &str| -> Result<String> {
+    let read = |p: &str| -> Result<Side3> {
         let t = std::fs::read_to_string(p).with_context(|| format!("reading {}", p))?;
-        Ok(t.lines().next().unwrap_or("").trim().to_string())
+        Ok(Side3::parse(&t))
     };
-    let ours = first(&ours_path)?;
-    let theirs = first(&theirs_path)?;
-    let text = if ours == theirs || theirs.is_empty() {
-        format!("{}\n", ours)
-    } else if ours.is_empty() {
-        format!("{}\n", theirs)
-    } else {
-        format!("{}\nmerge {}\n", ours, theirs)
+    let ours = read(&ours_path)?;
+    let theirs = read(&theirs_path)?;
+    if ours.markers || theirs.markers {
+        bail!("git left conflict markers in a side of .tasks/HEAD, which a merge cannot record, so nothing was changed: undo this git command (`git merge --abort`), run `tsk merge` to settle the markers and commit `.tasks`, then run the git command again");
+    }
+    // Everything theirs names that ours does not: its HEAD and its own
+    // pending merges. Nothing is ever dropped: ours stays as it is, and one
+    // new line is recorded only when ours has none pending.
+    let mut new: Vec<&String> = Vec::new();
+    for h in theirs.head.iter().chain(theirs.merges.iter()) {
+        if Some(h) != ours.head.as_ref() && !ours.merges.contains(h) && !new.contains(&h) {
+            new.push(h);
+        }
+    }
+    let short = |h: &str| h[..h.len().min(10)].to_string();
+    let text = match (&ours.head, new.as_slice()) {
+        (_, []) => return Ok(()), // %A untouched: theirs adds nothing
+        (None, _) if ours.merges.is_empty() => theirs.text(),
+        (Some(o), [t]) if ours.merges.is_empty() => format!("{}\nmerge {}\n", o, t),
+        _ if !ours.merges.is_empty() => bail!(
+            "settle the pending merge first: this copy's .tasks/HEAD still holds a merge tsk has not settled (merge {}), and recording this one too would lose one of them, so nothing was changed: undo this git command (`git merge --abort`, or `git cherry-pick --abort`; a `git stash pop` that stops keeps the stash), run `tsk merge` (if it reports a conflict, settle it with `tsk merge --prefer ours` or `--prefer theirs`), commit `.tasks` (`git add .tasks`, `git commit -m \"settle the store\"`), then run the git command again",
+            short(&ours.merges[0])
+        ),
+        _ => bail!(
+            "the other side's .tasks/HEAD holds a merge tsk has not settled (merge {}), and this copy can record only one line to merge, so nothing was changed: undo this git command (`git merge --abort`), settle it on a branch of its own (`git switch -c tsk-settle <the other side>`, `tsk merge`, `git add .tasks`, `git commit -m \"settle the store\"`), then go back (`git switch -`) and merge `tsk-settle` in place of the other side",
+            theirs.merges.first().map(|m| short(m)).unwrap_or_default()
+        ),
     };
     std::fs::write(&ours_path, text)?;
     Ok(())
+}
+
+/// One side of `.tasks/HEAD` as git hands it to the driver: its HEAD, the
+/// merges it still holds, and whether it carries conflict markers.
+struct Side3 {
+    head: Option<String>,
+    merges: Vec<String>,
+    markers: bool,
+}
+
+impl Side3 {
+    fn parse(t: &str) -> Side3 {
+        let mut s = Side3 { head: None, merges: Vec::new(), markers: false };
+        for l in t.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            if ["<<<<<<<", "=======", ">>>>>>>", "|||||||"].iter().any(|m| l.starts_with(m)) {
+                s.markers = true;
+            } else if let Some(h) = l.strip_prefix("merge ") {
+                s.merges.push(h.trim().to_string());
+            } else if s.head.is_none() {
+                s.head = Some(l.to_string());
+            } else {
+                s.merges.push(l.to_string());
+            }
+        }
+        s
+    }
+    fn text(&self) -> String {
+        let mut t = self.head.as_ref().map(|h| format!("{}\n", h)).unwrap_or_default();
+        for m in &self.merges {
+            t.push_str(&format!("merge {}\n", m));
+        }
+        t
+    }
 }
 
 /// Whether git is in the middle of a rebase: either backend's state

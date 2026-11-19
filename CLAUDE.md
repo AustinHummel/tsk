@@ -14,7 +14,7 @@ A CLI for planning and tracking work, built the way Git is built: every
 change is an immutable event pointing at a snapshot of the whole plan, and
 status, readiness and loops are computed from history, never stored. Rust
 2021, one binary, pure-Rust dependencies, about 7,000 lines in fourteen
-modules under `src/`, 72 end-to-end tests under `tests/`. Version 0.6.0
+modules under `src/`, 78 end-to-end tests under `tests/`. Version 0.6.0
 (`Cargo.toml`). Public at https://github.com/AustinHummel/tsk, MIT.
 
 It is Austin Hummel's tool, maintained by his org's agents (his decision,
@@ -38,9 +38,10 @@ Each is enforced by a test named in brackets where one exists.
    loaded from (never HEAD re-read at write time). Advancing HEAD claims
    that parent; a lost claim exits 3 with "the store moved ... nothing was
    written". Correctness never depends on the lock, which is turn-taking
-   only. A claim holds its writer's pid; one left behind (HEAD still at
-   its parent and its process gone, or, written empty by 0.6.0, a minute
-   old) guards nothing and is passed over to the next name,
+   only. A claim holds its writer's pid and program name (`exe`); one
+   left behind (HEAD still at its parent and its process gone, the pid
+   now another program's, or, written empty by 0.6.0, a minute old)
+   guards nothing and is passed over to the next name,
    `<parent>.1`, never deleted; a live writer's claim still refuses,
    naming the file. [`a_commit_on_a_parent_already_advanced_is_refused_not_overwritten`,
    `a_reported_save_is_always_on_the_line_even_with_stale_locks_broken_at_once`,
@@ -105,8 +106,8 @@ pass `--manifest-path C:\Projects\tsk\Cargo.toml`), and what green means:
 cd /c/Projects/tsk && nice -n 10 ~/.cargo/bin/cargo.exe test --locked
 ```
 
-Green is **72 passed, 0 failed, 1 ignored** (15 in `tests/cli.rs`, 17 in
-`tests/agent_org.rs`, 26 in `tests/merge.rs`, 14 in `tests/trial.rs`, 0 in
+Green is **78 passed, 0 failed, 1 ignored** (15 in `tests/cli.rs`, 17 in
+`tests/agent_org.rs`, 32 in `tests/merge.rs`, 14 in `tests/trial.rs`, 0 in
 `src/`; the ignored one is the inner half of the `TSK_STORE` isolation
 test, which runs it in a child), about 10 s on a warm `target/`, a few minutes on a cold one. A change that adds a test
 updates this count in the same commit. `--locked` holds the committed

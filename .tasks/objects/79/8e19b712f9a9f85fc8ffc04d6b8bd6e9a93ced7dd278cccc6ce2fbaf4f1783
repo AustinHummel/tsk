@@ -1,0 +1,10 @@
+task
+{
+  "id": "t110",
+  "title": "Fix the second blind review's three defects",
+  "parent": "t96",
+  "seq": 110,
+  "body": "",
+  "types": [],
+  "fit": "the second blind review's findings on 8bd5cf4 and cc54b25: a second merge over a pending marker that drops a committed event, ours and theirs inverted in a swapped merge, and a reused pid that wedges writes"
+}

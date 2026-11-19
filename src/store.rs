@@ -44,26 +44,61 @@ pub struct ReflogEntry {
     pub what: String,
 }
 
-/// Whether the process named in a lock file (`pid N`) is known to have
-/// exited on this machine. False when it is alive, or when that cannot be
-/// told (no pid line, a lock from another machine, no way to ask).
+/// This program's file name, written beside its pid in a lock or a claim
+/// (`exe tsk.exe`), so a later reader can tell its writer from another
+/// program that was given the same pid after it exited.
+fn own_exe() -> String {
+    std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string())).unwrap_or_else(|| "tsk".to_string())
+}
+
+/// Whether a live process's program name (as the OS lists it) is the writer
+/// named in the file: the `exe` it recorded, or, for a file with none, any
+/// program whose name starts with `tsk`. Linux truncates names to 15 bytes.
+fn same_program(listed: &str, recorded: Option<&str>) -> bool {
+    let listed = listed.trim().rsplit(['/', '\\']).next().unwrap_or("").to_ascii_lowercase();
+    if listed.is_empty() {
+        return true;
+    }
+    match recorded.map(|r| r.trim().to_ascii_lowercase()) {
+        Some(r) => listed == r || (listed.len() == 15 && r.starts_with(&listed)),
+        None => listed.starts_with("tsk"),
+    }
+}
+
+/// Whether the process named in a lock file or a claim (`pid N`, and since
+/// 0.7.0 `exe <name>`) is known to have exited on this machine: no process
+/// has that pid, or the one that has it now is another program (the pid was
+/// reused). False when it is alive, or when that cannot be told (no pid
+/// line, no way to ask). Windows asks `tasklist` for the pid's image name;
+/// elsewhere `ps -p N -o comm=`, which lists another user's process too, so
+/// one that `kill -0` would refuse (EPERM) counts as alive.
 fn lock_holder_exited(holder: &str) -> bool {
     let Some(pid) = holder.lines().find_map(|l| l.strip_prefix("pid ")).and_then(|p| p.trim().parse::<u32>().ok()) else { return false };
     if pid == std::process::id() {
         return false;
     }
+    // Only a whole line: a writer fills its file a moment after creating it.
+    let recorded = holder.split_inclusive('\n').filter(|l| l.ends_with('\n')).find_map(|l| l.strip_prefix("exe ")).map(str::trim).filter(|e| !e.is_empty());
     #[cfg(windows)]
     {
         let out = std::process::Command::new("tasklist").args(["/FI", &format!("PID eq {}", pid), "/NH", "/FO", "CSV"]).output();
         match out {
-            Ok(o) if o.status.success() => !String::from_utf8_lossy(&o.stdout).contains(&format!("\"{}\"", pid)),
+            Ok(o) if o.status.success() => {
+                let text = String::from_utf8_lossy(&o.stdout).to_string();
+                let quoted = format!("\"{}\"", pid);
+                match text.lines().find(|l| l.split(',').nth(1) == Some(quoted.as_str())) {
+                    None => true,
+                    Some(row) => !same_program(row.split(',').next().unwrap_or("").trim_matches('"'), recorded),
+                }
+            }
             _ => false,
         }
     }
     #[cfg(not(windows))]
     {
-        match std::process::Command::new("kill").args(["-0", &pid.to_string()]).output() {
-            Ok(o) => !o.status.success(),
+        match std::process::Command::new("ps").args(["-p", &pid.to_string(), "-o", "comm="]).output() {
+            Ok(o) if o.status.success() => !same_program(&String::from_utf8_lossy(&o.stdout), recorded),
+            Ok(o) => String::from_utf8_lossy(&o.stdout).trim().is_empty(),
             Err(_) => false,
         }
     }
@@ -92,6 +127,11 @@ pub struct HeadFile {
     pub conflicted: bool,
     pub theirs: Option<Hash>,
     pub theirs_pending: Option<Hash>,
+    /// Every other line of history the file names, in order, ours left
+    /// out: each `merge` line on either side and theirs under conflict
+    /// markers. tsk settles one merge at a time, so more than one is
+    /// refused rather than any being dropped.
+    pub named: Vec<Hash>,
 }
 
 impl HeadFile {
@@ -483,6 +523,10 @@ impl Store {
                 side = 1;
                 continue;
             }
+            if line.starts_with("|||||||") && hf.conflicted {
+                side = 2; // diff3's base section: neither side
+                continue;
+            }
             if line.starts_with(">>>>>>>") {
                 side = 2;
                 continue;
@@ -491,17 +535,25 @@ impl Store {
                 continue;
             }
             if let Some(h) = line.strip_prefix("merge ") {
+                let h = h.trim().to_string();
                 if side == 0 {
-                    hf.pending = Some(h.trim().to_string());
+                    hf.pending.get_or_insert_with(|| h.clone());
                 } else {
-                    hf.theirs_pending = Some(h.trim().to_string());
+                    hf.theirs_pending.get_or_insert_with(|| h.clone());
                 }
+                hf.named.push(h);
             } else if side == 0 && hf.ours.is_none() {
                 hf.ours = Some(line.to_string());
             } else if side == 1 && hf.theirs.is_none() {
                 hf.theirs = Some(line.to_string());
+                hf.named.push(line.to_string());
+            } else {
+                hf.named.push(line.to_string());
             }
         }
+        let ours = hf.ours.clone();
+        let mut seen = std::collections::HashSet::new();
+        hf.named.retain(|h| Some(h) != ours.as_ref() && seen.insert(h.clone()));
         Ok(hf)
     }
 
@@ -571,8 +623,8 @@ impl Store {
             let path = dir.join(&name);
             match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(mut f) => {
-                    let _ = writeln!(f, "pid {}
-time {}", std::process::id(), crate::commit::now());
+                    // One write: a reader never takes a half-written line.
+                    let _ = f.write_all(format!("pid {}\nexe {}\ntime {}\n", std::process::id(), own_exe(), crate::commit::now()).as_bytes());
                     return Ok(());
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -711,7 +763,7 @@ time {}", std::process::id(), crate::commit::now());
                     let args: Vec<String> = std::env::args().skip(1).collect();
                     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
                     let token = format!("{:x}-{:x}", nanos, std::process::id());
-                    let _ = writeln!(f, "pid {}\ntoken {}\ntime {}\ncmd {}", std::process::id(), token, crate::commit::now(), args.join(" "));
+                    let _ = f.write_all(format!("pid {}\nexe {}\ntoken {}\ntime {}\ncmd {}\n", std::process::id(), own_exe(), token, crate::commit::now(), args.join(" ")).as_bytes());
                     return Ok(Lock { path, token });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
