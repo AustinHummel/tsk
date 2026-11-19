@@ -5,6 +5,28 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// The environment a test's binary never inherits: anything that could name
+/// a real store, sign events as someone else, or move the clock. The shell
+/// running `cargo test` may have `TSK_STORE` set (an agent's shell, pointed at
+/// a live store), and the binary reads it as `--store`.
+pub const SCRUBBED: &[&str] = &["TSK_STORE", "TSK_AUTHOR", "TSK_NOW", "TSK_LOCK_TIMEOUT", "TSK_LOCK_STALE", "TSK_EDITOR"];
+
+/// The binary under test, with `SCRUBBED` removed from its environment. Every
+/// spawn of the binary in `tests/` goes through this.
+pub fn tsk() -> Command {
+    scrubbed(env!("CARGO_BIN_EXE_tsk"))
+}
+
+/// Any program the tests run (git too: it runs the merge driver, which
+/// inherits git's environment), with `SCRUBBED` removed.
+pub fn scrubbed(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    for k in SCRUBBED {
+        cmd.env_remove(k);
+    }
+    cmd
+}
+
 pub struct Proj {
     pub dir: PathBuf,
 }
@@ -23,7 +45,7 @@ impl Proj {
     }
     /// Run from any directory with extra environment, e.g. naming the store.
     pub fn run_from(&self, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> (bool, String) {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut cmd = tsk();
         cmd.args(args).current_dir(cwd);
         for (k, v) in env {
             cmd.env(k, v);

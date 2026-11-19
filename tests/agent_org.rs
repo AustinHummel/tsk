@@ -3,8 +3,7 @@
 //! mirror, the log file and plan diff, pruning, and the old snapshot form.
 
 mod common;
-use common::{dana, Proj};
-use std::process::Command;
+use common::{dana, scrubbed, tsk, Proj};
 
 #[test]
 fn parallel_writers_never_lose_an_event() {
@@ -13,7 +12,7 @@ fn parallel_writers_never_lose_an_event() {
     let store = p.store();
     let mut kids = Vec::new();
     for i in 0..16 {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut cmd = tsk();
         cmd.args(["--store", &store, "add", &format!("task {}", i)]).current_dir(&elsewhere).env("TSK_AUTHOR", format!("agent-{}", i));
         kids.push(cmd.spawn().unwrap());
     }
@@ -33,7 +32,7 @@ fn parallel_writers_never_lose_an_event() {
     // One whose process has exited (a crash) is broken at once; one too old
     // to tell is broken after `lock.stale`.
     // A process that has just exited: dead by construction on every OS.
-    let mut child = Command::new(env!("CARGO_BIN_EXE_tsk")).arg("--version").stdout(std::process::Stdio::null()).spawn().unwrap();
+    let mut child = tsk().arg("--version").stdout(std::process::Stdio::null()).spawn().unwrap();
     let dead_pid = child.id();
     child.wait().unwrap();
     std::fs::write(p.dir.join(".tasks/lock"), format!("pid {}\n", dead_pid)).unwrap();
@@ -184,7 +183,7 @@ fn log_file_and_plan_diff_track_every_event() {
 fn diff_against_the_last_git_commit() {
     let p = Proj::new("gitdiff");
     let git = |args: &[&str]| {
-        let out = Command::new("git").args(args).current_dir(&p.dir).output().expect("git on PATH");
+        let out = common::scrubbed("git").args(args).current_dir(&p.dir).output().expect("git on PATH");
         assert!(out.status.success(), "git {:?}: {}", args, String::from_utf8_lossy(&out.stderr));
     };
     git(&["init", "-q"]);
@@ -305,7 +304,7 @@ fn a_commit_on_a_parent_already_advanced_is_refused_not_overwritten() {
     // this process still believes HEAD is here: the write must not land.
     std::fs::create_dir_all(p.dir.join(".tasks/claims")).unwrap();
     std::fs::write(p.dir.join(".tasks/claims").join(&head), "").unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_tsk")).args(["add", "lost?"]).current_dir(&p.dir).output().unwrap();
+    let out = tsk().args(["add", "lost?"]).current_dir(&p.dir).output().unwrap();
     assert_eq!(out.status.code(), Some(3), "exit 3 says: run it again");
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("the store moved") && err.contains("nothing was written"), "{}", err);
@@ -328,7 +327,7 @@ fn a_reported_save_is_always_on_the_line_even_with_stale_locks_broken_at_once() 
     let before = p.ok(&["rev-list"]).lines().count();
     let mut kids = Vec::new();
     for i in 0..20 {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut cmd = tsk();
         cmd.args(["--store", &store, "add", &format!("task {}", i)]).env("TSK_LOCK_STALE", "0").env("TSK_LOCK_TIMEOUT", "20");
         kids.push(cmd.spawn().unwrap());
     }
@@ -401,4 +400,33 @@ fn a_format_1_store_from_0_5_0_still_loads_and_rises_to_2() {
     p.ok(&["amend", "t1", "piece", "--fit", "a part", "--core", "the rest"]);
     assert!(p.read(".tasks/config").contains("format = 2"), "{}", p.read(".tasks/config"));
     assert!(p.ok(&["plan"]).contains("from 0.5.0"));
+}
+
+/// The inner half of the next test: an ordinary test's writes. Ignored in a
+/// normal run; the outer test runs it in a child with `TSK_STORE` set.
+#[test]
+#[ignore = "run by the_test_runner_never_lets_tsk_store_reach_the_binary"]
+fn inner_writes_with_tsk_store_in_the_environment() {
+    let p = Proj::new("leak-inner");
+    let before = p.read(".tasks/HEAD");
+    p.ok(&["add", "a test's task", "--by", "the suite: a write"]);
+    assert_ne!(p.read(".tasks/HEAD"), before, "the write lands in the test's own store");
+}
+
+#[test]
+fn the_test_runner_never_lets_tsk_store_reach_the_binary() {
+    // A decoy store stands in for a live one an agent's shell names in
+    // TSK_STORE. Run this test binary's inner test with it set: the decoy
+    // must be untouched, and the inner test's own store written.
+    let decoy = Proj::new("leak-decoy");
+    let head = decoy.read(".tasks/HEAD");
+    let out = scrubbed(std::env::current_exe().unwrap().to_str().unwrap())
+        .args(["--exact", "inner_writes_with_tsk_store_in_the_environment", "--ignored", "--test-threads=1"])
+        .env("TSK_STORE", decoy.store())
+        .env("TSK_AUTHOR", "a stray author")
+        .output()
+        .unwrap();
+    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success() && text.contains("1 passed"), "{}", text);
+    assert_eq!(decoy.read(".tasks/HEAD"), head, "the decoy store was written:\n{}", decoy.ok(&["log"]));
 }

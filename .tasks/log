@@ -189,3 +189,4 @@
 2026-11-19T20:06:26Z  b80cb254d7  linked           link 12.4 -> 12.5: the merge built and its blind review passed  [12.4 12.5]  -- fable tsk-0.7.0-U1 2026-11-19
 2026-11-19T20:06:26Z  d3c0fbb74a  applied          apply release to 12.5  [12.5 12.5.1 12.5.2 12.5.3 12.5.4 12.5.5]  -- fable tsk-0.7.0-U1 2026-11-19
 2026-11-19T20:06:26Z  9f5921f095  completed        complete 12.1  [12.1]  -- fable tsk-0.7.0-U1 2026-11-19
+2026-11-19T20:18:33Z  e9ed8d63b5  started          start 12.2  [12.2]  -- opus tsk-0.7.0-U2U3 2026-11-19

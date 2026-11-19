@@ -3,7 +3,6 @@
 mod common;
 use common::{dana, Proj};
 use std::path::Path;
-use std::process::Command;
 
 /// A second copy of the store, as git would carry it.
 fn copy_store(from: &Path, to: &Path) {
@@ -175,7 +174,7 @@ fn a_field_changed_on_both_sides_is_a_conflict_until_preferred() {
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git").args(["-c", "user.email=t@t", "-c", "user.name=t"]).args(args).current_dir(dir).output().expect("git on PATH");
+    let out = common::scrubbed("git").args(["-c", "user.email=t@t", "-c", "user.name=t"]).args(args).current_dir(dir).output().expect("git on PATH");
     format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
 }
 
