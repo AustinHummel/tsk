@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "884a8378c992af1e497005299b14187d74a7b1573d252c3586e8d67ed2fc0de0",
+  "snapshot": "60b84ba45173e9444a3cfd203a78f1699b74448ae25f2cdcf1f8a00e94804724",
+  "time": "2026-11-19T23:16:52Z",
+  "author": "opus tsk-0.7.0-fixes-4 2026-11-19",
+  "message": "amend 12 with Fix the fourth blind review's edges",
+  "subjects": [
+    "t96",
+    "t112"
+  ],
+  "forced": false
+}

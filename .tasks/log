@@ -208,3 +208,6 @@
 2026-11-19T22:49:54Z  62abd0b4c3  amended          amend 12 with Fix the third blind review's defects  [12 12.9]  -- opus tsk-0.7.0-fixes-3 2026-11-19
 2026-11-19T22:50:00Z  9089e80bf8  started          start 12.9  [12.9]  -- opus tsk-0.7.0-fixes-3 2026-11-19
 2026-11-19T22:55:46Z  884a8378c9  completed        complete 12.9  [12.9]  -- opus tsk-0.7.0-fixes-3 2026-11-19
+2026-11-19T23:16:52Z  cdf936c4fd  amended          amend 12 with Fix the fourth blind review's edges  [12 12.10]  -- opus tsk-0.7.0-fixes-4 2026-11-19
+2026-11-19T23:16:56Z  18c6e1e008  started          start 12.10  [12.10]  -- opus tsk-0.7.0-fixes-4 2026-11-19
+2026-11-19T23:25:06Z  f104802ba0  completed        complete 12.10  [12.10]  -- opus tsk-0.7.0-fixes-4 2026-11-19

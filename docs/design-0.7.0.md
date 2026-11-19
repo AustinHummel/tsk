@@ -254,6 +254,21 @@ An unkeyed store's driver is unchanged in every case.
   theirs is the shared line, and is not checked); a read shows our side.
   In a swapped merge the report and `--prefer` keep git's sides: ours is
   HEAD (the shared line), theirs the stash or the picked commit.
+- **The remaining edges all come from an unsettled HEAD that is
+  committed and travels** (fourth review, 2026-11-19, of `3d2867d`; the
+  org enforces "a committed `.tasks/HEAD` is one line" where commits leave
+  a machine, and `tsk merge --settled`, exit 0 or 1 and nothing written,
+  is the check its hooks call). tsk's side: the branch's own
+  `@{upstream}`, read at a reflog base, never decides (its earlier value
+  is this copy's last push or fetch, so it swapped the sides and moved
+  published numbers); where it would, a write is refused, naming `tsk
+  merge --upstream`. When no ref read a settled head that could decide
+  (a fresh clone of a `main` pushed unsettled), that is the only way out
+  named, since `git config tsk.shared` would be refused again. A
+  cherry-picked store commit whose event's parent this copy lacks is
+  refused naming `git merge <the branch it came from>`, `git
+  cherry-pick --abort` or `git reset --keep HEAD~1`. A pending merge that
+  ends as a fast-forward is reported as one.
 - **HEAD may record several pending merges** (third review, 2026-11-19;
   the second review's refusal lost the other line when the user
   committed, as git's hint says). The driver never drops a line: when

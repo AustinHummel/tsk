@@ -1,0 +1,10 @@
+task
+{
+  "id": "t112",
+  "title": "Fix the fourth blind review's edges",
+  "parent": "t96",
+  "seq": 112,
+  "body": "",
+  "types": [],
+  "fit": "the fourth blind review's findings on 3d2867d: the branch's upstream read at a reflog base swaps the sides, a cherry-picked store commit missing its parent with no way out, a fresh clone of a main pushed unsettled offered a way out that is refused, a fast-forward reported as replayed; and a read-only check that HEAD is settled, for the org's hooks"
+}

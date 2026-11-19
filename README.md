@@ -100,7 +100,7 @@ Process (porcelain):
 | `backlinks <task>` | Markdown files in the project that link to the task's page. |
 | `prune [--before E] [--dry-run]` | Drop old snapshots; every event and the log stay. |
 | `reflog`, `reset <event>` | Every move of HEAD on this copy, and the way back to any of them. |
-| `merge [theirs] [--prefer ours\|theirs] [--dry-run]` | Replay another copy's events onto ours. |
+| `merge [theirs] [--prefer ours\|theirs] [--dry-run] [--upstream]` | Replay another copy's events onto ours. `merge --settled` only asks whether `.tasks/HEAD` is settled (exit 0 or 1, nothing written). |
 | `git-setup` | Register the git merge driver for `.tasks/HEAD` (once per machine). |
 | `config [key [value]]` | `author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`, `color.ui`, `require.by` (`true`: a root without `--by` is refused). |
 
@@ -343,10 +343,25 @@ copy's `git config tsk.shared <ref>` (never committed; `main` on the copy
 that publishes), else config `shared` (default `origin/main`), then the
 local branch that ref tracks, then the branch's upstream. A ref whose
 committed HEAD still names an unsettled merge is read at its last settled
-value in git's reflog. Without the driver, `tsk merge` with no arguments
+value in git's reflog, except the branch's own upstream: its earlier value
+is this copy's own past, so where it would decide, a write is refused,
+naming `tsk merge --upstream`. When no ref is settled anywhere (a fresh
+clone of a branch pushed unsettled), that is the only way out named. A
+cherry-picked store commit brings its events without the line before
+them; settling it is refused, naming the way out (`git merge` the branch
+it came from, or undo the pick). Without the driver, `tsk merge` with no arguments
 reads the conflict markers git left in `HEAD`. The log merges as a union
 and is rebuilt from history after a merge, or whenever it is found out of
 step. After either path, commit `.tasks/` as usual.
+
+**Never let an unsettled HEAD leave the machine.** A committed
+`.tasks/HEAD` that still names a merge travels, and every copy that pulls
+it has to guess. `tsk merge --settled` asks: exit 0 when `.tasks/HEAD` is
+one event with nothing pending, 1 when it names a merge or holds conflict
+markers (or no store is found). It reads the file only, settles nothing
+and writes nothing (`--json`: `{"settled": true|false}`), so a pre-push
+hook or a landing script can call it; any other tsk command settles the
+merge, then commit `.tasks/`.
 
 **Any merge, or anything else, can be undone.** Nothing is ever deleted
 by a merge; HEAD moves. Every move of HEAD is recorded in `.tasks/reflog`

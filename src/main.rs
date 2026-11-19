@@ -393,6 +393,10 @@ enum Cmd {
         /// merges what came through git this way.
         #[arg(long)]
         upstream: bool,
+        /// Only ask whether `.tasks/HEAD` is settled (one event, no merge pending): exit 0 if
+        /// it is, 1 if not. Reads the file only; nothing is settled or written.
+        #[arg(long, conflicts_with_all = ["theirs", "prefer", "dry_run", "git", "upstream"])]
+        settled: bool,
     },
     /// Configure git to hand `.tasks/HEAD` merges to tsk (once per machine).
     GitSetup,
@@ -557,7 +561,7 @@ fn run() {
         Cmd::Render { dir } => render::render(dir),
         Cmd::Backlinks { task } => render::backlinks(task, json),
         Cmd::Prune { before, dry_run } => prune::prune(before, dry_run),
-        Cmd::Merge { theirs, prefer, dry_run, git, upstream } => merge::merge(theirs, prefer, dry_run, git, upstream),
+        Cmd::Merge { theirs, prefer, dry_run, git, upstream, settled } => merge::merge(theirs, prefer, dry_run, git, upstream, settled),
         Cmd::GitSetup => merge::git_setup(),
         Cmd::Key { letters } => commands::key(letters, json),
         Cmd::Reflog { limit } => commands::reflog(limit, json),

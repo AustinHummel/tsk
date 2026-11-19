@@ -1364,3 +1364,171 @@ fn a_ps_that_cannot_answer_counts_a_writer_as_alive() {
     let (ok, out) = p.run(&["add", "seen"]);
     assert!(ok, "{}", out);
 }
+
+// ----- 0.7: the fourth review's edges ------------------------------------
+
+/// A third clone of the shared line's home, with its own key.
+fn clone_of(m: &Machine, hub: &Proj, name: &str, key: &str) -> Proj {
+    let p = Proj { dir: std::env::temp_dir().join(format!("tsk-test-{}-{}", name, std::process::id())) };
+    let _ = std::fs::remove_dir_all(&p.dir);
+    m.ok(&hub.dir, &["clone", "-q", ".", p.dir.to_str().unwrap()]);
+    p.ok(&["key", key]);
+    p
+}
+
+/// The PC lands with main ahead of origin/main and pushes its side branch
+/// with the landing's merge unsettled; the Mac, whose push of that branch is
+/// rejected, merges it. The branch's own upstream holds the marker, and its
+/// settled base in the Mac's reflog is the Mac's own earlier push: it must
+/// not decide. Refused, nothing written, naming the way out, which works.
+#[test]
+fn an_upstream_pushed_unsettled_is_refused_not_swapped() {
+    let m = Machine::new("upstream-marker");
+    let (hub, pc) = m.pair("upstream-marker", true);
+    m.ok(&hub.dir, &["branch", "side/mac"]);
+    let mac = clone_of(&m, &hub, "upstream-marker-lap", "q");
+    m.ok(&mac.dir, &["checkout", "-q", "-b", "side/mac", "origin/side/mac"]);
+    mac.ok(&["add", "mac one", "--by", "Mac: work"]);
+    m.commit(&mac.dir, "mac one");
+    m.ok(&mac.dir, &["push", "-q", "origin", "side/mac"]);
+    pc.ok(&["add", "pc unpushed", "--by", "PC: work"]);
+    m.commit(&pc.dir, "pc");
+    m.ok(&pc.dir, &["fetch", "-q"]);
+    m.ok(&pc.dir, &["checkout", "-q", "-b", "side/mac", "origin/side/mac"]);
+    m.ok(&pc.dir, &["merge", "--no-edit", "main"]);
+    assert!(pc.read(".tasks/HEAD").contains("\nmerge "), "the landing's marker");
+    m.ok(&pc.dir, &["push", "-q", "origin", "side/mac"]);
+    mac.ok(&["add", "mac two", "--by", "Mac: more"]);
+    m.commit(&mac.dir, "mac two");
+    let (ok, text) = m.git(&mac.dir, &["push", "-q", "origin", "side/mac"]);
+    assert!(!ok, "the push is rejected: {}", text);
+    m.ok(&mac.dir, &["fetch", "-q"]);
+    let (ok, text) = m.git(&mac.dir, &["merge", "--no-edit", "origin/side/mac"]);
+    assert!(!ok && text.contains("records 2 lines to merge"), "{}", text);
+    m.commit(&mac.dir, "merge origin/side/mac");
+    let marker = mac.read(".tasks/HEAD");
+    assert!(marker.contains("merge "), "{}", marker);
+    let (ok, text) = m.tsk(&mac, &["add", "more", "--by", "Mac: more"]);
+    assert!(
+        !ok && !text.contains("sides swapped") && text.contains("origin/side/mac") && text.contains("nothing was written") && text.contains("tsk merge --upstream"),
+        "{}",
+        text
+    );
+    // The line already merged is cleared; the refused one stays, HEAD as it was.
+    let last = marker.lines().last().unwrap().to_string();
+    let now = mac.read(".tasks/HEAD");
+    assert!(now.starts_with(marker.lines().next().unwrap()) && now.contains(&last) && !text.contains("moved:"), "nothing written:\n{}", now);
+    let (ok, text) = m.tsk(&mac, &["merge", "--upstream"]);
+    assert!(ok && !text.contains("sides swapped"), "{}", text);
+    let plan = mac.ok(&["plan"]);
+    for t in ["mac one", "mac two", "pc unpushed"] {
+        assert!(plan.contains(t), "{} is on the line:\n{}", t, plan);
+    }
+}
+
+/// A cherry-picked store commit brings its event without the line before
+/// it. Settling it is refused with the way out: merge the branch it came
+/// from, or undo the pick. Merging the branch settles it.
+#[test]
+fn a_cherry_picked_event_whose_parent_is_absent_names_the_way_out() {
+    let m = Machine::new("pick-orphan");
+    let (_hub, pc) = m.pair("pick-orphan", true);
+    m.ok(&pc.dir, &["checkout", "-q", "-b", "feat"]);
+    pc.ok(&["add", "feat one", "--by", "PC: work"]);
+    m.commit(&pc.dir, "feat one");
+    pc.ok(&["add", "feat two", "--by", "PC: work"]);
+    m.commit(&pc.dir, "feat two");
+    m.ok(&pc.dir, &["checkout", "-q", "main"]);
+    pc.ok(&["key", "q"]);
+    pc.ok(&["add", "main's", "--by", "PC: work"]);
+    pc.ok(&["key", "p"]);
+    m.commit(&pc.dir, "main's");
+    m.ok(&pc.dir, &["cherry-pick", "feat"]);
+    let marker = pc.read(".tasks/HEAD");
+    assert!(marker.contains("\nmerge "), "{}", marker);
+    let (ok, text) = m.tsk(&pc, &["add", "more", "--by", "PC: more"]);
+    assert!(
+        !ok && text.contains("cherry-pick") && text.contains("git merge <the branch it came from>") && text.contains("git reset --keep HEAD~1") && text.contains("git cherry-pick --abort"),
+        "{}",
+        text
+    );
+    assert_eq!(pc.read(".tasks/HEAD"), marker, "nothing written");
+    let (ok, text) = m.tsk(&pc, &["merge"]);
+    assert!(!ok && text.contains("git reset --keep HEAD~1"), "tsk merge too:\n{}", text);
+    m.ok(&pc.dir, &["merge", "--no-edit", "feat"]);
+    let (ok, text) = m.tsk(&pc, &["add", "more", "--by", "PC: more"]);
+    assert!(ok, "{}", text);
+    let plan = pc.ok(&["plan"]);
+    for t in ["feat one", "feat two", "main's", "more"] {
+        assert!(plan.contains(t), "{} is on the line:\n{}", t, plan);
+    }
+}
+
+/// A fresh clone of a main pushed with its merge unsettled has no settled
+/// base anywhere: naming a shared ref cannot help, so the refusal names only
+/// `tsk merge --upstream`, which works.
+#[test]
+fn a_fresh_clone_of_an_unsettled_main_is_told_only_the_way_that_works() {
+    let m = Machine::new("clone-marker");
+    let (hub, _pc) = m.pair("clone-marker", true);
+    m.ok(&hub.dir, &["checkout", "-q", "-b", "side"]);
+    hub.ok(&["key", "s"]);
+    hub.ok(&["add", "side's", "--by", "Hub: work"]);
+    hub.ok(&["key", "m"]);
+    m.commit(&hub.dir, "side's");
+    m.ok(&hub.dir, &["checkout", "-q", "main"]);
+    hub.ok(&["add", "main's", "--by", "Hub: work"]);
+    m.commit(&hub.dir, "main's");
+    m.ok(&hub.dir, &["merge", "--no-edit", "side"]);
+    assert!(hub.read(".tasks/HEAD").contains("\nmerge "), "main committed unsettled");
+    let fresh = clone_of(&m, &hub, "clone-marker-fresh", "f");
+    let marker = fresh.read(".tasks/HEAD");
+    let (ok, text) = m.tsk(&fresh, &["add", "more", "--by", "Fresh: work"]);
+    assert!(!ok && text.contains("nothing was written") && text.contains("tsk merge --upstream") && !text.contains("tsk.shared"), "{}", text);
+    assert_eq!(fresh.read(".tasks/HEAD"), marker, "nothing written");
+    let (ok, text) = m.tsk(&fresh, &["merge", "--upstream"]);
+    assert!(ok, "{}", text);
+    let (ok, text) = m.tsk(&fresh, &["add", "more", "--by", "Fresh: work"]);
+    assert!(ok, "{}", text);
+}
+
+/// A pending merge that ends as a fast-forward says so, not "replayed".
+#[test]
+fn a_pending_fast_forward_is_reported_as_one() {
+    let (a, b) = pair("pending-ff", None);
+    let ours = head(&a);
+    b.ok(&["add", "bob's root"]);
+    b.ok(&["add", "bob's second"]);
+    bring_objects(&b.dir, &a.dir);
+    let theirs = head(&b);
+    std::fs::write(a.dir.join(".tasks/HEAD"), format!("{}\nmerge {}\n", ours, theirs)).unwrap();
+    let (ok, text) = a.run(&["plan"]);
+    assert!(ok && text.contains(&format!("fast-forward to {}: 2 event(s)", &theirs[..10])) && !text.contains("replayed"), "{}", text);
+    assert_eq!(head(&a), theirs);
+}
+
+/// `tsk merge --settled`: exit 0 when .tasks/HEAD is one line with nothing
+/// pending, 1 otherwise; it never writes, and never settles.
+#[test]
+fn the_settled_check_reads_and_never_writes() {
+    let (a, b) = pair("settled-check", None);
+    let (ok, text) = a.run(&["merge", "--settled"]);
+    assert!(ok && text.contains("settled"), "{}", text);
+    b.ok(&["add", "bob's root"]);
+    bring_objects(&b.dir, &a.dir);
+    let pending = format!("{}\nmerge {}\n", head(&a), head(&b));
+    std::fs::write(a.dir.join(".tasks/HEAD"), &pending).unwrap();
+    let (ok, text) = a.run(&["merge", "--settled"]);
+    assert!(!ok && text.contains("not settled"), "{}", text);
+    assert_eq!(a.read(".tasks/HEAD"), pending, "nothing written, nothing settled");
+    let (ok, text) = a.run(&["--json", "merge", "--settled"]);
+    assert!(!ok && text.contains("\"settled\": false"), "{}", text);
+    let markers = format!("<<<<<<< HEAD\n{}\n=======\n{}\n>>>>>>> other\n", head(&a), head(&b));
+    std::fs::write(a.dir.join(".tasks/HEAD"), &markers).unwrap();
+    let (ok, _) = a.run(&["merge", "--settled"]);
+    assert!(!ok, "conflict markers are not settled");
+    assert_eq!(a.read(".tasks/HEAD"), markers);
+    a.ok(&["plan"]);
+    let (ok, text) = a.run(&["--json", "merge", "--settled"]);
+    assert!(ok && text.contains("\"settled\": true"), "{}", text);
+}
