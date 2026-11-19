@@ -1,0 +1,10 @@
+task
+{
+  "id": "t111",
+  "title": "Fix the third blind review's defects",
+  "parent": "t96",
+  "seq": 111,
+  "body": "",
+  "types": [],
+  "fit": "the third blind review's findings on abfc2d8: an unsettled marker on the shared ref that swaps the sides, the driver's refusal that loses a line when committed, a HEAD naming two lines with no way out, the publisher's unpushed main renumbered, a racy lock create on Windows, a ps that cannot answer, and init ignoring --store"
+}

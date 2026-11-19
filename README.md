@@ -334,10 +334,16 @@ driver that resolves a `HEAD` conflict by recording the other side as
 pending (`merge <hash>` on HEAD's second line), so `git pull` never
 blocks, and the next tsk command performs the merge (a read warns and
 shows our side if it conflicts; a write refuses until `tsk merge
---prefer` settles it). HEAD records one pending merge at a time: a second
-git merge before tsk has settled the first is refused by the driver,
-nothing changed, with the way out (undo it, `tsk merge`, commit `.tasks`,
-merge again). Without the driver, `tsk merge` with no arguments
+--prefer` settles it). A second git merge before tsk has settled the
+first records its line too: the driver writes both `merge` lines and
+stops git as on a conflict, so `git add .tasks/HEAD` and committing lose
+neither, and tsk settles them one at a time, in order. On a keyed store
+the side kept is the published one: the store HEAD committed at this
+copy's `git config tsk.shared <ref>` (never committed; `main` on the copy
+that publishes), else config `shared` (default `origin/main`), then the
+local branch that ref tracks, then the branch's upstream. A ref whose
+committed HEAD still names an unsettled merge is read at its last settled
+value in git's reflog. Without the driver, `tsk merge` with no arguments
 reads the conflict markers git left in `HEAD`. The log merges as a union
 and is rebuilt from history after a merge, or whenever it is found out of
 step. After either path, commit `.tasks/` as usual.

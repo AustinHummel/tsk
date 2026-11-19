@@ -27,6 +27,10 @@ const LOG_HEADER: &str = "# tsk event log: one line per event, oldest first. tim
 
 pub struct Store {
     pub dir: PathBuf,
+    /// Lines of history still to merge after the one being settled: every
+    /// HEAD write keeps them as `merge` lines, so settling one of several
+    /// recorded merges never drops the others.
+    pub carry: std::cell::RefCell<Vec<Hash>>,
 }
 
 /// A copy's key: 1 to 3 lowercase ASCII letters.
@@ -96,10 +100,14 @@ fn lock_holder_exited(holder: &str) -> bool {
     }
     #[cfg(not(windows))]
     {
-        match std::process::Command::new("ps").args(["-p", &pid.to_string(), "-o", "comm="]).output() {
-            Ok(o) if o.status.success() => !same_program(&String::from_utf8_lossy(&o.stdout), recorded),
-            Ok(o) => String::from_utf8_lossy(&o.stdout).trim().is_empty(),
-            Err(_) => false,
+        let ps = |p: u32| std::process::Command::new("ps").args(["-p", &p.to_string(), "-o", "comm="]).output().ok();
+        match ps(pid) {
+            Some(o) if o.status.success() && !String::from_utf8_lossy(&o.stdout).trim().is_empty() => !same_program(&String::from_utf8_lossy(&o.stdout), recorded),
+            // Nothing listed: no such process, or a `ps` that cannot answer
+            // (busybox has no -p). Only a `ps` that lists this very process
+            // is believed; otherwise the holder counts as alive.
+            Some(_) => ps(std::process::id()).is_some_and(|o| o.status.success() && !String::from_utf8_lossy(&o.stdout).trim().is_empty()),
+            None => false,
         }
     }
 }
@@ -205,7 +213,7 @@ impl Store {
             bail!("{} already exists", dir.display());
         }
         fs::create_dir_all(dir.join("objects"))?;
-        let store = Store { dir };
+        let store = Store { dir, carry: Default::default() };
         let mut cfg = BTreeMap::new();
         cfg.insert("format".to_string(), FORMAT.to_string());
         store.write_config(&cfg)?;
@@ -221,7 +229,7 @@ impl Store {
         while let Some(p) = cur {
             let dir = p.join(DIR);
             if dir.is_dir() {
-                return Ok(Store { dir });
+                return Ok(Store { dir, carry: Default::default() });
             }
             cur = p.parent().map(Path::to_path_buf);
         }
@@ -235,7 +243,7 @@ impl Store {
         if !p.is_dir() {
             bail!("no store at {} (looked for {})", path.display(), p.display());
         }
-        Ok(Store { dir: p })
+        Ok(Store { dir: p, carry: Default::default() })
     }
 
     /// The project directory: the parent of `.tasks`.
@@ -277,8 +285,21 @@ impl Store {
 
     pub fn read_raw(&self, hash: &str) -> Result<(ObjectType, String)> {
         let full = self.resolve_hash(hash)?;
-        let text = fs::read_to_string(self.object_path(&full))
-            .with_context(|| format!("object {} not found (pruned, or not yet committed to this copy)", hash))?;
+        // An object is renamed into place before any HEAD names it; a read
+        // that races the rename on Windows can still fail for a moment, so a
+        // failed read is tried again briefly before it counts as missing.
+        let path = self.object_path(&full);
+        let mut read = fs::read_to_string(&path);
+        for wait in [5u64, 20, 50, 100] {
+            match &read {
+                Err(e) if matches!(e.kind(), std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::NotFound) => {
+                    std::thread::sleep(Duration::from_millis(wait));
+                    read = fs::read_to_string(&path);
+                }
+                _ => break,
+            }
+        }
+        let text = read.with_context(|| format!("object {} not found (pruned, or not yet committed to this copy)", hash))?;
         let (ty, body) = text
             .split_once('\n')
             .ok_or_else(|| anyhow!("object {} is malformed", hash))?;
@@ -569,7 +590,7 @@ impl Store {
             return Ok(());
         }
         let tmp = self.dir.join(format!("HEAD.tmp{}", std::process::id()));
-        fs::write(&tmp, format!("{}\nmerge {}\n", ours, theirs))?;
+        fs::write(&tmp, format!("{}\nmerge {}\n{}", ours, theirs, self.carried(Some(theirs))))?;
         fs::rename(tmp, self.dir.join("HEAD"))?;
         Ok(())
     }
@@ -596,9 +617,14 @@ impl Store {
         line.split_whitespace().nth(1).map(|s| s.to_string())
     }
 
+    /// The carried lines, as `merge` lines, less `except`.
+    fn carried(&self, except: Option<&str>) -> String {
+        self.carry.borrow().iter().filter(|h| Some(h.as_str()) != except).map(|h| format!("merge {}\n", h)).collect()
+    }
+
     pub fn set_head(&self, hash: &str) -> Result<()> {
         let tmp = self.dir.join(format!("HEAD.tmp{}", std::process::id()));
-        fs::write(&tmp, format!("{}\n", hash))?;
+        fs::write(&tmp, format!("{}\n{}", hash, self.carried(None)))?;
         fs::rename(tmp, self.dir.join("HEAD"))?;
         Ok(())
     }
@@ -815,6 +841,13 @@ impl Store {
                     }
                     let jitter = (start.elapsed().subsec_nanos() % 7) as u64;
                     std::thread::sleep(delay + Duration::from_millis(jitter));
+                    delay = (delay * 2).min(Duration::from_millis(100));
+                }
+                // Windows refuses to create a name whose last holder is still
+                // being deleted (access denied, or path not found): the lock
+                // is changing hands, so wait as for a held one.
+                Err(e) if matches!(e.kind(), std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::NotFound) && self.dir.is_dir() && start.elapsed() <= timeout => {
+                    std::thread::sleep(delay);
                     delay = (delay * 2).min(Duration::from_millis(100));
                 }
                 Err(e) => return Err(e).with_context(|| format!("taking {}", path.display())),

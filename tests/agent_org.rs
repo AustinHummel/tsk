@@ -60,6 +60,15 @@ fn store_is_addressable_without_changing_directory() {
     assert!(ok && text.contains("root"), "{}", text);
     let (ok, text) = p.run_from(&elsewhere, &[], &["--store", "C:/nowhere/at/all", "plan"]);
     assert!(!ok && text.contains("no store at"), "{}", text);
+    // init makes the store --store names, not one in the working directory.
+    let cwd = p.dir.join("cwd");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let fresh = p.dir.join("fresh").join("proj");
+    let (ok, text) = p.run_from(&cwd, &[], &["--store", &fresh.to_string_lossy(), "init"]);
+    assert!(ok && fresh.join(".tasks/HEAD").is_file() && !cwd.join(".tasks").exists(), "{}", text);
+    let named = p.dir.join("named").join(".tasks");
+    let (ok, text) = p.run_from(&cwd, &[], &["--store", &named.to_string_lossy(), "init"]);
+    assert!(ok && named.join("HEAD").is_file() && !named.join(".tasks").exists() && !cwd.join(".tasks").exists(), "{}", text);
 }
 
 #[test]

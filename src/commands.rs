@@ -222,8 +222,15 @@ fn new_task(plan: &mut Plan, title: &str, parent: Option<TaskId>, body: String) 
 // ===== porcelain ===========================================================
 
 pub fn init() -> Result<()> {
-    let cwd = std::env::current_dir()?;
-    let store = Store::init(&cwd)?;
+    // `--store` names where the store goes: the `.tasks` directory itself or
+    // the project that will hold it, created if missing.
+    let at = match STORE.get().cloned().flatten() {
+        Some(p) if p.file_name().is_some_and(|n| n == crate::store::DIR) => p.parent().filter(|q| !q.as_os_str().is_empty()).map(std::path::Path::to_path_buf).unwrap_or_else(|| PathBuf::from(".")),
+        Some(p) => p,
+        None => std::env::current_dir()?,
+    };
+    std::fs::create_dir_all(&at).with_context(|| format!("creating {}", at.display()))?;
+    let store = Store::init(&at)?;
     let plan = Plan::default();
     let h = commit::write_on(&store, &plan, None, Commit::new(EventKind::Init, "init", vec![]))?;
     done(&store, &h, &format!("initialized {}", store.dir.display()));

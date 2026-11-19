@@ -978,8 +978,8 @@ pub fn merge(theirs: Option<String>, prefer: Option<String>, dry_run: bool, git:
         (None, false) => hf.to_merge().ok_or_else(|| anyhow!("nothing to merge: name the other HEAD (`tsk merge <event>`), or run during a git merge (`--git`)"))?,
     };
     let ours = hf.ours.clone().ok_or_else(|| anyhow!("no HEAD"))?;
-    one_to_merge(&hf, &theirs)?;
-    let was_pending = hf.conflicted || hf.pending.is_some();
+    one_to_merge(&store, &hf, &theirs);
+    let was_pending = hf.named.contains(&theirs);
     let swap = if inferred { orient(&store, &ours, &theirs)? } else { None };
     let out = perform(&store, &theirs, prefer, dry_run, upstream, swap)?;
     if !out.conflicts.is_empty() {
@@ -994,7 +994,7 @@ pub fn merge(theirs: Option<String>, prefer: Option<String>, dry_run: bool, git:
         msg.push_str("nothing was written; run again with --prefer ours or --prefer theirs");
         bail!("{}", msg.trim_end());
     }
-    if was_pending && !dry_run && out.head.as_ref() == Some(&ours) && hf.to_merge().as_ref() == Some(&theirs) {
+    if was_pending && !dry_run && out.head.as_ref() == Some(&ours) {
         // Already merged: clear the pending line, or every command re-runs it.
         store.set_head(&ours)?;
     }
@@ -1011,30 +1011,11 @@ fn swapped_note(r: &str) -> String {
     format!("sides swapped: the shared line ({}) was our HEAD, not theirs, as after a stash pop or a cherry-pick, so it was kept and theirs replayed after it", r)
 }
 
-/// tsk settles one merge at a time, and settling writes HEAD as one line:
-/// a HEAD file that names any other line than `theirs` would lose it, so
-/// that is refused, nothing written.
-fn one_to_merge(hf: &crate::store::HeadFile, theirs: &Hash) -> Result<()> {
-    let others: Vec<&Hash> = hf.named.iter().filter(|h| *h != theirs).collect();
-    if others.is_empty() {
-        return Ok(());
-    }
-    let short = |h: &Hash| h[..h.len().min(10)].to_string();
-    if hf.named.len() == 1 {
-        bail!(
-            "a merge of {} is pending in .tasks/HEAD, and merging {} over it would drop it, so nothing was written: settle it first with `tsk merge`, then merge {}",
-            short(others[0]),
-            short(theirs),
-            short(theirs)
-        );
-    }
-    let all: Vec<String> = hf.named.iter().map(short).collect();
-    bail!(
-        ".tasks/HEAD names {} lines to merge ({}), and tsk settles one at a time, so nothing was written: git merged it without tsk's driver while a merge was still unsettled; run `git merge --abort`, then `tsk merge` to settle {}, commit `.tasks`, run `tsk git-setup` so git calls tsk's driver, and run the git merge again",
-        all.len(),
-        all.join(", "),
-        all[0]
-    )
+/// tsk settles one merge at a time. Every other line the HEAD file names
+/// is carried: each HEAD write keeps it as a `merge` line, so settling one
+/// never drops another, and the next is settled after it.
+fn one_to_merge(store: &Store, hf: &crate::store::HeadFile, theirs: &Hash) {
+    *store.carry.borrow_mut() = hf.named.iter().filter(|h| *h != theirs).cloned().collect();
 }
 
 /// Whether the line whose head `s` is committed at git ref `r` holds the
@@ -1070,63 +1051,131 @@ fn upstream_ref(store: &Store) -> Option<String> {
     (out.status.success() && !r.is_empty()).then_some(r)
 }
 
+/// `git <args>` in the store's work tree: its output, trimmed, on success.
+fn git_out(store: &Store, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("git").arg("-C").arg(store.root()).args(args).output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The published lines' git refs, in the order they are asked: this copy's
+/// own name for the shared line (`git config tsk.shared`, never committed,
+/// so the copy that publishes can name its local `main`), else the store's
+/// (config `shared`, default `origin/main`); then the local branch a remote
+/// shared ref tracks (`main` for `origin/main`), which on the copy that
+/// publishes is ahead of it; then the current branch's upstream.
+fn published_refs(store: &Store) -> Vec<String> {
+    let first = git_out(store, &["config", "--get", "tsk.shared"]).filter(|s| !s.is_empty()).unwrap_or_else(|| shared_ref(store));
+    let mut refs = vec![first.clone()];
+    if let Some((remote, branch)) = first.split_once('/') {
+        let is_remote = git_out(store, &["remote"]).is_some_and(|rs| rs.lines().any(|r| r.trim() == remote));
+        if is_remote && git_out(store, &["rev-parse", "--verify", "-q", &format!("refs/heads/{}", branch)]).is_some() {
+            refs.push(branch.to_string());
+        }
+    }
+    if let Some(u) = upstream_ref(store) {
+        refs.push(u);
+    }
+    let mut seen = HashSet::new();
+    refs.retain(|r| seen.insert(r.clone()));
+    refs
+}
+
+/// What a committed `.tasks/HEAD` says: its head, when it is settled (one
+/// event, no `merge` line, no conflict markers).
+fn settled_head(text: &str) -> Option<Hash> {
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let settled = lines.len() == 1 && lines[0].len() == 64 && lines[0].chars().all(|c| c.is_ascii_hexdigit());
+    settled.then(|| lines[0].to_string())
+}
+
+/// The store head published at git ref `r`, and the revision it was read
+/// at. A committed HEAD that still names a merge tsk has not settled says
+/// nothing about which side is published (its first line is git's ours,
+/// which after a fast-forward of a side branch's merge is the side's line),
+/// so its settled base is read instead: the newest earlier value of `r` in
+/// git's reflog whose committed HEAD is settled. Err: why there is none,
+/// and whether that blocks settling as recorded (an unsettled line might
+/// have decided; a missing one could not).
+fn published_head(store: &Store, r: &str) -> std::result::Result<(String, Hash), (bool, String)> {
+    let Some(prefix) = git_out(store, &["rev-parse", "--show-prefix"]) else { return Err((false, format!("{} cannot be read (not a git work tree)", r))) };
+    let at = |rev: &str| git_out(store, &["show", &format!("{}:{}{}/HEAD", rev, prefix, crate::store::DIR)]);
+    let Some(text) = at(r) else { return Err((false, format!("the store's HEAD is not committed at {}", r))) };
+    if let Some(h) = settled_head(&text) {
+        return Ok((r.to_string(), h));
+    }
+    for n in 1..=200 {
+        let rev = format!("{}@{{{}}}", r, n);
+        if git_out(store, &["rev-parse", "--verify", "-q", &rev]).is_none() {
+            break;
+        }
+        if let Some(h) = at(&rev).as_deref().and_then(settled_head) {
+            return Ok((rev, h));
+        }
+    }
+    Err((true, format!("the store's HEAD at {} still names a merge tsk has not settled, and git's reflog holds no settled value of {} before it", r, r)))
+}
+
 /// Which side of a merge that came through git holds a published line.
 /// git's sides are ours and theirs in a merge or a pull, but the other way
 /// round in a stash pop or a cherry-pick, and the driver cannot tell them
-/// apart. The published lines, in order: the store HEAD committed at the
-/// shared ref (config `shared`, default `origin/main`), then at the current
-/// branch's upstream (a side branch's `origin/side/x`). A side is on a line
-/// when it holds that head or the line holds the side (a fetch since moved
-/// the ref past it). The first line exactly one side is on decides: theirs,
-/// settle as recorded (None); ours, settle with the sides swapped (the
-/// ref's name). A line both or neither side is on does not decide, and the
-/// next is asked. When none decides: settled as recorded if both sides are
-/// on one of them (past it nothing is published on either side, so either
-/// order moves nothing published); otherwise refused, nothing written.
+/// apart. The published lines are asked in `published_refs` order, each at
+/// its settled store head (`published_head`). A side is on a line when it
+/// holds that head or the line holds the side (a fetch since moved the ref
+/// past it). The first line exactly one side is on decides: theirs, settle
+/// as recorded (None); ours, settle with the sides swapped (the ref's
+/// name). A line both or neither side is on does not decide, and the next
+/// is asked. When none decides: settled as recorded if both sides are on
+/// one of them (past it nothing is published on either side, so either
+/// order moves nothing published) and every line could be read; otherwise
+/// refused, nothing written.
 fn orient(store: &Store, ours: &Hash, theirs: &Hash) -> Result<Option<String>> {
     let holds = |line: &Hash, h: &Hash| -> Result<bool> { Ok(store.history_from(Some(line.clone()))?.iter().any(|(x, _)| x == h)) };
     // Missing, or already on our line: the merge itself says so.
     if !store.has_object(theirs) || holds(ours, theirs)? {
         return Ok(None);
     }
-    let mut refs = vec![shared_ref(store)];
-    if let Some(u) = upstream_ref(store) {
-        if !refs.contains(&u) {
-            refs.push(u);
-        }
-    }
-    let way = format!("name the shared line with `tsk config shared <ref>`, or, if {} is the shared line, run `tsk merge --upstream`", &theirs[..10]);
-    let (mut both, mut unread, mut held) = (false, Vec::new(), Vec::new());
-    for r in &refs {
-        let s = match crate::views::git_head_at(store, r) {
-            Ok(s) => s,
-            Err(e) => {
-                unread.push(format!("at {} ({})", r, e));
+    let way = format!("name this copy's shared line with `git config tsk.shared <ref>` (`main` on the copy that publishes), or, if {} is the shared line, run `tsk merge --upstream`", &theirs[..10]);
+    let (mut both, mut unread, mut unsettled, mut held) = (false, Vec::new(), Vec::new(), Vec::new());
+    for r in published_refs(store) {
+        let (rev, s) = match published_head(store, &r) {
+            Ok(x) => x,
+            Err((blocks, e)) => {
+                if blocks { unsettled.push(e) } else { unread.push(e) }
                 continue;
             }
         };
         // A side is on the published line when it holds the line's head, or
         // the line holds it (a fetch since moved the ref on past it).
-        let on = |side: &Hash| -> Result<bool> { Ok(holds(side, &s)? || line_holds(store, r, &s, side)) };
+        let on = |side: &Hash| -> Result<bool> { Ok(holds(side, &s)? || line_holds(store, &rev, &s, side)) };
         match (on(theirs)?, on(ours)?) {
             (true, false) => return Ok(None),
             (false, true) => return Ok(Some(r.clone())),
             (true, true) => both = true,
-            (false, false) => held.push(format!("{} at {}", &s[..10], r)),
+            (false, false) => held.push(format!("{} at {}", &s[..10], rev)),
         }
+    }
+    if !unsettled.is_empty() {
+        bail!("{}, so tsk cannot tell which side of this merge to keep, and nothing was written: {}", unsettled.join("; "), way);
     }
     if both {
         return Ok(None);
     }
     if held.is_empty() {
-        bail!("tsk cannot read the shared line's store head {}, so it cannot tell which side of this merge to keep, and nothing was written: run `git fetch`, {}", unread.join(", nor "), way);
+        bail!("tsk cannot read a published line's store head ({}), so it cannot tell which side of this merge to keep, and nothing was written: run `git fetch`, {}", unread.join("; "), way);
     }
     bail!("neither side of this merge holds a published line's store head ({}), so tsk cannot tell which side to keep, and nothing was written: {}", held.join(", "), way)
 }
 
-/// Settle a pending merge named in HEAD before a command runs. For a
+/// Settle the merges named in HEAD before a command runs, one at a time,
+/// in the order recorded; the others are carried in HEAD meanwhile. For a
 /// write, a conflict is an error; for a read, a warning.
 pub fn settle_pending(store: &Store, writing: bool) -> Result<()> {
+    let r = settle_each(store, writing);
+    store.carry.borrow_mut().clear();
+    r
+}
+
+fn settle_each(store: &Store, writing: bool) -> Result<()> {
     let hf = store.read_head_file()?;
     let Some(theirs) = hf.to_merge() else { return Ok(()) };
     let lock = match store.lock() {
@@ -1139,68 +1188,69 @@ pub fn settle_pending(store: &Store, writing: bool) -> Result<()> {
             return Ok(());
         }
     };
-    // Re-read under the lock: another process may have settled it.
-    let hf = store.read_head_file()?;
-    let Some(theirs) = hf.to_merge() else { return Ok(()) };
-    let ours = hf.ours.clone().ok_or_else(|| anyhow!("HEAD names a merge but no event"))?;
-    // A keyed store settles what git brought as the shared-line merge, on
-    // whichever side holds the shared line. A read that cannot settle (the
-    // shared line can't be told, or a live writer holds the claim) shows
-    // our side; only a write is refused.
-    let settled = (|| {
-        one_to_merge(&hf, &theirs)?;
-        let swap = if store.keyed() { orient(store, &ours, &theirs)? } else { None };
-        perform(store, &theirs, None, false, store.keyed(), swap)
-    })();
-    let out = match settled {
-        Ok(out) => out,
-        Err(e) if !writing => {
+    // HEAD names at most a few lines; each pass settles one (or stops).
+    for _ in 0..64 {
+        // Re-read under the lock: another process may have settled it.
+        let hf = store.read_head_file()?;
+        let Some(theirs) = hf.to_merge() else { return Ok(()) };
+        let ours = hf.ours.clone().ok_or_else(|| anyhow!("HEAD names a merge but no event"))?;
+        one_to_merge(store, &hf, &theirs);
+        // A keyed store settles what git brought as the shared-line merge, on
+        // whichever side holds the shared line. A read that cannot settle (the
+        // shared line can't be told, or a live writer holds the claim) shows
+        // our side; only a write is refused.
+        let settled = (|| {
+            let swap = if store.keyed() { orient(store, &ours, &theirs)? } else { None };
+            perform(store, &theirs, None, false, store.keyed(), swap)
+        })();
+        let out = match settled {
+            Ok(out) => out,
+            Err(e) if !writing => {
+                drop(lock);
+                eprintln!("tsk: a merge of {} is pending and was not settled: {}; showing our side", &theirs[..10], e);
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
+        if !out.conflicts.is_empty() {
+            store.set_head_pending(&ours, &theirs)?;
+            let msg = format!(
+                "a merge of {} is pending with {} conflict(s); run `tsk merge --prefer ours|theirs` (or `tsk merge --dry-run` to see them)",
+                &theirs[..10],
+                out.conflicts.len()
+            );
             drop(lock);
-            eprintln!("tsk: a merge of {} is pending and was not settled: {}; showing our side", &theirs[..10], e);
+            if writing {
+                bail!("{}", msg);
+            }
+            eprintln!("tsk: {}; showing our side", msg);
             return Ok(());
         }
-        Err(e) => return Err(e),
-    };
-    if !out.conflicts.is_empty() {
-        store.set_head_pending(&ours, &theirs)?;
-        let msg = format!(
-            "a merge of {} is pending with {} conflict(s); run `tsk merge --prefer ours|theirs` (or `tsk merge --dry-run` to see them)",
-            &theirs[..10],
-            out.conflicts.len()
-        );
-        drop(lock);
-        if writing {
-            bail!("{}", msg);
+        if out.head.as_ref() == Some(&ours) {
+            // Already merged: the pending line goes, HEAD stays.
+            store.set_head(&ours)?;
+            if !json_mode() {
+                eprintln!("tsk: {} is already merged; the pending merge is cleared", &theirs[..10]);
+            }
+            continue;
         }
-        eprintln!("tsk: {}; showing our side", msg);
-        return Ok(());
-    }
-    if out.head.as_ref() == Some(&ours) {
-        // Already merged: the pending line goes, HEAD stays.
-        store.set_head(&ours)?;
-        drop(lock);
         if !json_mode() {
-            eprintln!("tsk: {} is already merged; the pending merge is cleared", &theirs[..10]);
-        }
-        return Ok(());
-    }
-    drop(lock);
-    if !json_mode() {
-        eprintln!(
-            "tsk: merged {} ({}{} event(s) replayed{})",
-            &theirs[..10],
-            if out.upstream { "shared line kept, " } else { "" },
-            out.replayed.len(),
-            if out.renumbered.is_empty() { String::new() } else { format!(", {} id(s) renumbered", out.renumbered.len()) }
-        );
-        if let Some(r) = &out.swapped {
-            eprintln!("tsk: {}", swapped_note(r));
-        }
-        for (id, a, b) in &out.moved {
-            eprintln!("tsk: moved: {} {} -> {}", id, a, b);
-        }
-        for b in &out.both {
-            eprintln!("tsk: status on both sides: {}", b.text);
+            eprintln!(
+                "tsk: merged {} ({}{} event(s) replayed{})",
+                &theirs[..10],
+                if out.upstream { "shared line kept, " } else { "" },
+                out.replayed.len(),
+                if out.renumbered.is_empty() { String::new() } else { format!(", {} id(s) renumbered", out.renumbered.len()) }
+            );
+            if let Some(r) = &out.swapped {
+                eprintln!("tsk: {}", swapped_note(r));
+            }
+            for (id, a, b) in &out.moved {
+                eprintln!("tsk: moved: {} {} -> {}", id, a, b);
+            }
+            for b in &out.both {
+                eprintln!("tsk: status on both sides: {}", b.text);
+            }
         }
     }
     Ok(())
@@ -1236,8 +1286,8 @@ pub fn merge_driver(ours_path: String, theirs_path: String, path: Option<String>
         bail!("git left conflict markers in a side of .tasks/HEAD, which a merge cannot record, so nothing was changed: undo this git command (`git merge --abort`), run `tsk merge` to settle the markers and commit `.tasks`, then run the git command again");
     }
     // Everything theirs names that ours does not: its HEAD and its own
-    // pending merges. Nothing is ever dropped: ours stays as it is, and one
-    // new line is recorded only when ours has none pending.
+    // pending merges. Nothing is ever dropped: ours stays as it is, and each
+    // new line is added to it.
     let mut new: Vec<&String> = Vec::new();
     for h in theirs.head.iter().chain(theirs.merges.iter()) {
         if Some(h) != ours.head.as_ref() && !ours.merges.contains(h) && !new.contains(&h) {
@@ -1245,21 +1295,29 @@ pub fn merge_driver(ours_path: String, theirs_path: String, path: Option<String>
         }
     }
     let short = |h: &str| h[..h.len().min(10)].to_string();
-    let text = match (&ours.head, new.as_slice()) {
+    match (&ours.head, new.as_slice()) {
         (_, []) => return Ok(()), // %A untouched: theirs adds nothing
-        (None, _) if ours.merges.is_empty() => theirs.text(),
-        (Some(o), [t]) if ours.merges.is_empty() => format!("{}\nmerge {}\n", o, t),
-        _ if !ours.merges.is_empty() => bail!(
-            "settle the pending merge first: this copy's .tasks/HEAD still holds a merge tsk has not settled (merge {}), and recording this one too would lose one of them, so nothing was changed: undo this git command (`git merge --abort`, or `git cherry-pick --abort`; a `git stash pop` that stops keeps the stash), run `tsk merge` (if it reports a conflict, settle it with `tsk merge --prefer ours` or `--prefer theirs`), commit `.tasks` (`git add .tasks`, `git commit -m \"settle the store\"`), then run the git command again",
-            short(&ours.merges[0])
-        ),
-        _ => bail!(
-            "the other side's .tasks/HEAD holds a merge tsk has not settled (merge {}), and this copy can record only one line to merge, so nothing was changed: undo this git command (`git merge --abort`), settle it on a branch of its own (`git switch -c tsk-settle <the other side>`, `tsk merge`, `git add .tasks`, `git commit -m \"settle the store\"`), then go back (`git switch -`) and merge `tsk-settle` in place of the other side",
-            theirs.merges.first().map(|m| short(m)).unwrap_or_default()
-        ),
-    };
-    std::fs::write(&ours_path, text)?;
-    Ok(())
+        (None, _) if ours.merges.is_empty() => {
+            std::fs::write(&ours_path, theirs.text())?;
+            return Ok(());
+        }
+        (Some(o), [t]) if ours.merges.is_empty() => {
+            std::fs::write(&ours_path, format!("{}\nmerge {}\n", o, t))?;
+            return Ok(());
+        }
+        _ => {}
+    }
+    // More than one line to merge: every one is recorded in %A, which git
+    // keeps whatever the driver exits with, so committing it loses none;
+    // tsk settles them one at a time. Exit 1 all the same, so git stops and
+    // says so.
+    let all = Side3 { head: ours.head.clone(), merges: ours.merges.iter().cloned().chain(new.iter().map(|h| (*h).clone())).collect(), markers: false };
+    std::fs::write(&ours_path, all.text())?;
+    bail!(
+        ".tasks/HEAD now records {} lines to merge ({}), and git stops here as on a conflict; nothing is lost: mark it resolved and finish (`git add .tasks/HEAD`, then `git commit`, or `git cherry-pick --continue`), and tsk settles them one at a time at its next command (`tsk merge` reports each)",
+        all.merges.len(),
+        all.merges.iter().map(|m| short(m)).collect::<Vec<_>>().join(", ")
+    )
 }
 
 /// One side of `.tasks/HEAD` as git hands it to the driver: its HEAD, the

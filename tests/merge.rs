@@ -957,7 +957,7 @@ fn a_merge_whose_shared_line_cannot_be_told_is_refused() {
     assert!(marker.contains("\nmerge "), "{}", marker);
     let (ok, text) = m.tsk(&mac, &["add", "more"]);
     assert!(
-        !ok && text.contains("cannot read the shared line's store head at origin/main") && text.contains("nothing was written") && text.contains("tsk config shared <ref>"),
+        !ok && text.contains("not committed at origin/main") && text.contains("nothing was written") && text.contains("git config tsk.shared <ref>"),
         "{}",
         text
     );
@@ -965,8 +965,10 @@ fn a_merge_whose_shared_line_cannot_be_told_is_refused() {
     let (ok, text) = m.tsk(&mac, &["plan"]);
     assert!(ok && text.contains("showing our side") && text.contains("2 t5m"), "a read is not blocked:\n{}", text);
     assert_eq!(mac.read(".tasks/HEAD"), marker, "nothing written");
-    // The way out: name the shared line. Here it is the Mac's own main.
-    mac.ok(&["config", "shared", "main"]);
+    // The way out: name this copy's shared line, its own main (never
+    // committed). main's committed HEAD is the pull's marker, so its settled
+    // base is read from git's reflog: the Mac's own head before the pull.
+    m.ok(&mac.dir, &["config", "tsk.shared", "main"]);
     let (ok, text) = m.tsk(&mac, &["plan"]);
     assert!(ok && text.contains("sides swapped"), "{}", text);
     let plan = positions(&mac.ok(&["plan"]));
@@ -1106,12 +1108,11 @@ fn mac_commits(m: &Machine, mac: &Proj, branch: &str, title: &str) {
 
 /// The blind review's case: the PC, with an unpublished event, pulls its side
 /// branch while origin/main is ahead of both sides, then merges origin/main
-/// before any tsk command. The second merge would have replaced the pending
-/// marker, dropping the Mac's side event: the driver refuses it, nothing
-/// changed. The pull alone settles without a refusal (the branch's upstream
-/// is a published line), and nothing is lost.
+/// before any tsk command. The driver records both lines in .tasks/HEAD and
+/// stops git; committing that, as git's hint says (the third review's
+/// reproduction), loses neither: tsk settles them one at a time.
 #[test]
-fn a_second_merge_over_a_pending_one_is_refused_and_nothing_is_lost() {
+fn a_second_merge_over_a_pending_one_is_recorded_and_committing_loses_nothing() {
     let m = Machine::new("second-merge");
     let (mac, pc) = side_branch(&m, "second-merge");
     pc.ok(&["add", "pc's root", "--by", "PC: work"]);
@@ -1122,28 +1123,28 @@ fn a_second_merge_over_a_pending_one_is_refused_and_nothing_is_lost() {
     let marker = pc.read(".tasks/HEAD");
     assert!(marker.contains("\nmerge "), "{}", marker);
     let (ok, text) = m.git(&pc.dir, &["merge", "--no-edit", "origin/main"]);
-    assert!(!ok && text.contains("settle the pending merge first") && text.contains("nothing was changed") && text.contains("`git merge --abort`"), "{}", text);
-    assert_eq!(pc.read(".tasks/HEAD"), marker, "the pending marker is untouched");
-    // The way out the sentence names.
-    m.ok(&pc.dir, &["merge", "--abort"]);
-    let (ok, text) = m.tsk(&pc, &["merge"]);
-    assert!(ok && text.contains("merged"), "settled without a refusal:\n{}", text);
-    m.commit(&pc.dir, "settle the store");
-    m.ok(&pc.dir, &["merge", "--no-edit", "origin/main"]);
-    let (ok, text) = m.tsk(&pc, &["plan"]);
+    assert!(!ok && text.contains("records 2 lines to merge") && text.contains("nothing is lost"), "{}", text);
+    let recorded = pc.read(".tasks/HEAD");
+    assert!(recorded.starts_with(&marker) && recorded.matches("merge ").count() == 2, "both lines:\n{}", recorded);
+    m.commit(&pc.dir, "merge origin/main");
+    let (ok, text) = m.git(&pc.dir, &["merge", "--no-edit", "origin/main"]);
+    assert!(ok && text.contains("Already up to date"), "{}", text);
+    let (ok, text) = m.tsk(&pc, &["add", "after", "--by", "PC: more"]);
     assert!(ok && text.contains("shared line kept"), "{}", text);
-    for t in ["mac's side", "mac's main", "pc's root"] {
-        assert!(text.contains(t), "{} is on the line:\n{}", t, text);
+    let plan = pc.ok(&["plan"]);
+    for t in ["mac's side", "mac's main", "pc's root", "after"] {
+        assert!(plan.contains(t), "{} is on the line:\n{}", t, plan);
     }
     let main_line = m.ok(&mac.dir, &["show", "main:.tasks/HEAD"]).trim().to_string();
     assert!(pc.ok(&["rev-list"]).contains(&main_line), "origin/main's line, hash for hash");
+    assert!(!pc.read(".tasks/HEAD").contains("merge "), "both settled");
 }
 
-/// A pending status conflict holds the marker: a second pull over it is
-/// refused, nothing changed, and once settled with --prefer, pulling again
-/// brings everything.
+/// A pending status conflict holds the marker: a second pull over it records
+/// its line too; once the first is settled with --prefer, the second settles
+/// at the next command, and everything is on the line.
 #[test]
-fn a_second_pull_over_a_pending_status_conflict_is_refused() {
+fn a_second_pull_over_a_pending_status_conflict_keeps_both_lines() {
     let m = Machine::new("second-pull-status");
     let (mac, pc) = m.pair("second-pull-status", true);
     pc.ok(&["start", "1.1"]);
@@ -1158,13 +1159,14 @@ fn a_second_pull_over_a_pending_status_conflict_is_refused() {
     mac.ok(&["add", "mac's more", "--by", "Mac: work"]);
     m.commit(&mac.dir, "mac more");
     let (ok, text) = m.git(&pc.dir, &["pull", "--no-rebase", "--no-edit"]);
-    assert!(!ok && text.contains("settle the pending merge first"), "{}", text);
-    assert_eq!(pc.read(".tasks/HEAD"), marker, "the pending marker is untouched");
-    m.ok(&pc.dir, &["merge", "--abort"]);
+    assert!(!ok && text.contains("records 2 lines to merge"), "{}", text);
+    assert!(pc.read(".tasks/HEAD").starts_with(&marker), "the pending line is kept");
+    m.commit(&pc.dir, "second pull");
+    let (ok, text) = m.tsk(&pc, &["add", "another", "--by", "PC: more"]);
+    assert!(!ok && text.contains("pending with 1 conflict(s)"), "the first is still a conflict:\n{}", text);
     let (ok, text) = m.tsk(&pc, &["merge", "--prefer", "theirs"]);
     assert!(ok && text.contains("theirs preferred"), "{}", text);
-    m.commit(&pc.dir, "settle the store");
-    m.ok(&pc.dir, &["pull", "--no-rebase", "--no-edit", "-q"]);
+    assert!(pc.read(".tasks/HEAD").contains("merge "), "the second line is carried");
     let (ok, text) = m.tsk(&pc, &["plan", "-a"]);
     assert!(ok && text.contains("mac's more") && text.contains("[x] 1.1"), "{}", text);
     assert!(pc.ok(&["rev-list"]).ends_with(&mac.ok(&["rev-list"])), "the shared line, hash for hash");
@@ -1237,10 +1239,10 @@ fn a_swapped_merge_names_the_sides_as_git_does() {
 }
 
 /// A HEAD file that names more than one line to merge (git's markers over a
-/// pending merge, on a machine without the driver), or a merge named over a
-/// pending one, is refused, nothing written; a read shows our side.
+/// pending merge, on a machine without the driver) settles them one at a
+/// time; a merge named over a pending one settles and carries the other.
 #[test]
-fn more_than_one_line_to_merge_is_refused() {
+fn two_lines_to_merge_are_settled_one_at_a_time() {
     let (a, b) = pair("two-to-merge", None);
     a.ok(&["add", "alice's root"]);
     b.ok(&["add", "bob's root"]);
@@ -1251,14 +1253,114 @@ fn more_than_one_line_to_merge_is_refused() {
     let text = format!("<<<<<<< HEAD\n{}\nmerge {}\n=======\n{}\n>>>>>>> other\n", ours, x, theirs);
     std::fs::write(a.dir.join(".tasks/HEAD"), &text).unwrap();
     let (ok, out) = a.run(&["add", "more"]);
-    assert!(!ok && out.contains("names 2 lines to merge") && out.contains("nothing was written"), "{}", out);
-    assert_eq!(a.read(".tasks/HEAD"), text);
-    let (ok, out) = a.run(&["plan"]);
-    assert!(ok && out.contains("showing our side"), "{}", out);
-    assert_eq!(a.read(".tasks/HEAD"), text);
-    let pending = format!("{}\nmerge {}\n", ours, x);
-    std::fs::write(a.dir.join(".tasks/HEAD"), &pending).unwrap();
-    let (ok, out) = a.run(&["merge", &theirs]);
-    assert!(!ok && out.contains("is pending") && out.contains("settle it first with `tsk merge`"), "{}", out);
-    assert_eq!(a.read(".tasks/HEAD"), pending);
+    assert!(ok, "{}", out);
+    let plan = a.ok(&["plan"]);
+    for t in ["alice's root", "bob's root", "bob's second", "more"] {
+        assert!(plan.contains(t), "{}:\n{}", t, plan);
+    }
+    assert!(!a.read(".tasks/HEAD").contains("merge"), "{}", a.read(".tasks/HEAD"));
+    // A merge named over a pending one: the pending line is carried.
+    let (c, d) = pair("two-to-merge-named", None);
+    c.ok(&["add", "carol's root"]);
+    d.ok(&["add", "dave's root"]);
+    let x = head(&d);
+    d.ok(&["add", "dave's second"]);
+    bring_objects(&d.dir, &c.dir);
+    let (ours, theirs) = (head(&c), head(&d));
+    std::fs::write(c.dir.join(".tasks/HEAD"), format!("{}\nmerge {}\n", ours, x)).unwrap();
+    let (ok, out) = c.run(&["merge", &theirs]);
+    assert!(ok, "{}", out);
+    assert!(c.read(".tasks/HEAD").contains(&format!("merge {}", x)), "carried:\n{}", c.read(".tasks/HEAD"));
+    let (ok, out) = c.run(&["plan"]);
+    assert!(ok && out.contains("already merged") && out.contains("dave's second"), "{}", out);
+    assert!(!c.read(".tasks/HEAD").contains("merge"), "{}", c.read(".tasks/HEAD"));
+}
+
+// ----- 0.7: the shared line at a ref that holds a marker ------------------
+
+/// `side.sh land` with a push before any tsk command: the side branch merges
+/// main in (the marker's ours is the side's line), main is fast-forwarded to
+/// it and pushed. origin/main's committed HEAD then names the unsettled
+/// merge, and its first line is the side's: it must not decide. Its settled
+/// base (git's reflog) is main's published line, which is kept.
+#[test]
+fn a_pushed_landing_marker_does_not_swap_the_sides() {
+    let m = Machine::new("pushed-marker");
+    let (mac, pc) = m.pair("pushed-marker", true);
+    m.ok(&mac.dir, &["branch", "side/x"]);
+    pc.ok(&["add", "pc one", "--by", "PC: work"]);
+    pc.ok(&["add", "pc two", "--by", "PC: work"]);
+    m.commit(&pc.dir, "pc");
+    m.ok(&mac.dir, &["checkout", "-q", "--detach"]);
+    m.ok(&pc.dir, &["push", "-q", "origin", "main"]);
+    m.ok(&mac.dir, &["checkout", "-q", "main"]);
+    mac_commits(&m, &mac, "side/x", "mac's side");
+    m.ok(&mac.dir, &["checkout", "-q", "--detach"]);
+    m.ok(&pc.dir, &["fetch", "-q"]);
+    m.ok(&pc.dir, &["checkout", "-q", "-b", "side/x", "origin/side/x"]);
+    m.ok(&pc.dir, &["merge", "--no-edit", "main"]);
+    m.ok(&pc.dir, &["checkout", "-q", "main"]);
+    m.ok(&pc.dir, &["merge", "-q", "--ff-only", "side/x"]);
+    m.ok(&pc.dir, &["push", "-q", "origin", "main"]);
+    assert!(m.ok(&pc.dir, &["show", "origin/main:.tasks/HEAD"]).contains("\nmerge "), "origin/main holds the marker");
+    let (ok, text) = m.tsk(&pc, &["plan"]);
+    assert!(ok && text.contains("shared line kept") && !text.contains("sides swapped") && !text.contains("moved: t5p"), "{}", text);
+    let plan = positions(&pc.ok(&["plan"]));
+    for p in ["2 t5p", "3 t6p", "4 t5m"] {
+        assert!(plan.contains(&p.to_string()), "{}: {:?}", p, plan);
+    }
+}
+
+/// The copy that publishes holds main ahead of origin/main. Settling a
+/// landing's merge on the side branch, whose upstream holds the side's own
+/// line, must keep main's unpushed events where they are: main, the local
+/// branch origin/main tracks, is asked before the branch's upstream.
+#[test]
+fn the_publishers_unpushed_main_is_never_renumbered() {
+    let m = Machine::new("publisher");
+    let (mac, pc) = m.pair("publisher", true);
+    pc.ok(&["add", "pc one", "--by", "PC: work"]);
+    m.commit(&pc.dir, "pc one");
+    m.ok(&mac.dir, &["checkout", "-q", "--detach"]);
+    m.ok(&pc.dir, &["push", "-q", "origin", "main"]);
+    m.ok(&mac.dir, &["checkout", "-q", "main"]);
+    m.ok(&mac.dir, &["branch", "side/x"]);
+    pc.ok(&["add", "pc two, unpushed", "--by", "PC: work"]);
+    m.commit(&pc.dir, "pc two");
+    mac_commits(&m, &mac, "side/x", "mac's side");
+    m.ok(&pc.dir, &["fetch", "-q"]);
+    m.ok(&pc.dir, &["checkout", "-q", "-b", "side/x", "origin/side/x"]);
+    m.ok(&pc.dir, &["merge", "--no-edit", "main"]);
+    let (ok, text) = m.tsk(&pc, &["plan"]);
+    assert!(ok && !text.contains("sides swapped") && !text.contains("moved: t6p"), "{}", text);
+    let plan = positions(&pc.ok(&["plan"]));
+    for p in ["2 t5p", "3 t6p", "4 t6m"] {
+        assert!(plan.contains(&p.to_string()), "{}: {:?}", p, plan);
+    }
+}
+
+/// A `ps` that cannot answer (busybox has no `-p`: it lists nothing) cannot
+/// tell a live writer from an exited one, so its claim counts as alive: the
+/// write is refused, nothing written, naming the file to remove.
+#[cfg(unix)]
+#[test]
+fn a_ps_that_cannot_answer_counts_a_writer_as_alive() {
+    use std::os::unix::fs::PermissionsExt;
+    let (p, _) = pair("ps-blind", None);
+    let bin = p.dir.join("fakebin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("ps"), "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(bin.join("ps"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut dirs = vec![bin.clone()];
+    dirs.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+    let path = std::env::join_paths(dirs).unwrap().to_string_lossy().to_string();
+    let h = head(&p);
+    std::fs::create_dir_all(p.dir.join(".tasks/claims")).unwrap();
+    std::fs::write(p.dir.join(".tasks/claims").join(&h), format!("pid {}\nexe tsk\ntime 2026-11-19T00:00:00Z\n", dead_pid())).unwrap();
+    let (ok, out) = p.run_from(&p.dir, &[("PATH", path.as_str())], &["add", "blind"]);
+    assert!(!ok && out.contains("nothing was written") && out.contains(&format!("remove .tasks/claims/{}", h)), "{}", out);
+    assert_eq!(head(&p), h);
+    // A `ps` that answers sees the writer is gone.
+    let (ok, out) = p.run(&["add", "seen"]);
+    assert!(ok, "{}", out);
 }

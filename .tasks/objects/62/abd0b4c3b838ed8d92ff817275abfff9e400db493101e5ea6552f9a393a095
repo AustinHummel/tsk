@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "3a027ce6ab3415924d60f5e5167cad32e6a1dd9e27a39bae30f2b36e6434f3c2",
+  "snapshot": "36c3de0e93f15fbab465b5a8827d80ac99dedfb926adebb2bfc82aadf3d5b5a8",
+  "time": "2026-11-19T22:49:54Z",
+  "author": "opus tsk-0.7.0-fixes-3 2026-11-19",
+  "message": "amend 12 with Fix the third blind review's defects",
+  "subjects": [
+    "t96",
+    "t111"
+  ],
+  "forced": false
+}

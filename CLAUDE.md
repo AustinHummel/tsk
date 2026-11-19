@@ -106,10 +106,11 @@ pass `--manifest-path C:\Projects\tsk\Cargo.toml`), and what green means:
 cd /c/Projects/tsk && nice -n 10 ~/.cargo/bin/cargo.exe test --locked
 ```
 
-Green is **78 passed, 0 failed, 1 ignored** (15 in `tests/cli.rs`, 17 in
-`tests/agent_org.rs`, 32 in `tests/merge.rs`, 14 in `tests/trial.rs`, 0 in
-`src/`; the ignored one is the inner half of the `TSK_STORE` isolation
-test, which runs it in a child), about 10 s on a warm `target/`, a few minutes on a cold one. A change that adds a test
+Green is **80 passed, 0 failed, 1 ignored** on Windows (15 in
+`tests/cli.rs`, 17 in `tests/agent_org.rs`, 34 in `tests/merge.rs`, 14 in
+`tests/trial.rs`, 0 in `src/`; the ignored one is the inner half of the
+`TSK_STORE` isolation test, which runs it in a child), and 81 on Linux
+and macOS, where one more merge test (a `ps` that cannot answer) runs, about 10 s on a warm `target/`, a few minutes on a cold one. A change that adds a test
 updates this count in the same commit. `--locked` holds the committed
 `Cargo.lock`; CI uses it too.
 

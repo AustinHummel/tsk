@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Completed",
+  "parent": "9089e80bf8c36afa6c8438afb59d9f19828cb0ebfb7a13ecc868f924e0d886d4",
+  "snapshot": "36c3de0e93f15fbab465b5a8827d80ac99dedfb926adebb2bfc82aadf3d5b5a8",
+  "time": "2026-11-19T22:55:46Z",
+  "author": "opus tsk-0.7.0-fixes-3 2026-11-19",
+  "message": "complete 12.9",
+  "subjects": [
+    "t111"
+  ],
+  "forced": false
+}
