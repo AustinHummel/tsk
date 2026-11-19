@@ -1,0 +1,10 @@
+task
+{
+  "id": "t2",
+  "title": "Open each morning",
+  "parent": "t1",
+  "seq": 2,
+  "body": "",
+  "types": [],
+  "fit": "daily running"
+}

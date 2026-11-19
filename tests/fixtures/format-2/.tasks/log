@@ -1,0 +1,13 @@
+# tsk event log: one line per event, oldest first. time  event  kind  message  [tasks]  -- author
+2026-11-19T20:19:12Z  55149ff188  init             init  -- tsk 0.6.0 (fixture)
+2026-11-19T20:19:12Z  971b6779f3  created          add Run the shop  [1]  -- tsk 0.6.0 (fixture)
+2026-11-19T20:19:18Z  8521da5d47  amended          amend 1 with Open each morning  [1 1.1]  -- tsk 0.6.0 (fixture)
+2026-11-19T20:19:19Z  bb6e1279b5  amended          amend 1 with Stock the shelves  [1 1.2]  -- tsk 0.6.0 (fixture)
+2026-11-19T20:19:19Z  ed9f442e92  amended          amend 1 with Spring sale  [1 1.3]  -- tsk 0.6.0 (fixture)
+2026-11-19T20:19:19Z  0bae8521d9  set              ongoing 1.3: each sale day  [1.3]  -- tsk 0.6.0 (fixture)
+2026-11-19T20:19:24Z  af67f11d91  closed           close 1.3: the sale ended  [1.3]  -- tsk 0.6.0 (fixture)
+2026-11-19T20:19:25Z  0dc232245a  reopened         reopen 1.3  [1.3]  -- tsk 0.6.0 (fixture)
+2026-11-19T20:19:25Z  a9151d2296  created          add Renew the lease  [2]  -- tsk 0.6.0 (fixture)
+2026-11-19T20:19:25Z  cf2f3ed779  linked           link 1.2 -> 2: stock counts for the lease  [1.2 2]  -- tsk 0.6.0 (fixture)
+2026-11-19T20:19:25Z  a5ab8e528f  started          start 1.1  [1.1]  -- tsk 0.6.0 (fixture)
+2026-11-19T20:19:25Z  7736aae3f3  completed        complete 1.1  [1.1]  -- tsk 0.6.0 (fixture)

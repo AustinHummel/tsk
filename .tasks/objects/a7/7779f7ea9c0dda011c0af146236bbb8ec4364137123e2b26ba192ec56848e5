@@ -1,0 +1,13 @@
+req
+{
+  "id": "r49",
+  "from": {
+    "kind": "person",
+    "id": "opus tsk-0.7.0-U2U3"
+  },
+  "on": "t107",
+  "reason": "CI run on e35ab35 (2026-11-19), windows-latest, a writer exited non-zero; ubuntu and macos green, local green",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-19T20:21:53Z"
+}

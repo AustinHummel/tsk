@@ -1,0 +1,9 @@
+task
+{
+  "id": "t107",
+  "title": "parallel_writers_never_lose_an_event failed once on Windows CI",
+  "parent": null,
+  "seq": 107,
+  "body": "Seen once on e35ab35 (the TSK_STORE scrub, which changes no lock code). The writers' stderr is not in the CI comment, so the cause is not known. A guess, unconfirmed: on Windows, create_new on .tasks/lock while another process's delete of it is still pending returns PermissionDenied, not AlreadyExists, and Store::lock returns that error instead of waiting (store.rs, the Err(e) arm of the lock loop). Next: capture the writers' output in the test, then decide.",
+  "types": []
+}

@@ -1,0 +1,13 @@
+tree
+{
+  "entries": [
+    {
+      "id": "t1",
+      "task": "a28398ae41561d97565037fab7504f354a83d300584f1a999ad08123b5ea665c",
+      "reqs": {
+        "r1": "a39953213ddbb5e5f295c1ede68ae5ca8144f10b5556be575a90200d7bf7f130"
+      },
+      "children": "d78a1bf25219284ce0d29bd5076cb5120bc179cd07e96a57487c3377ecf4e65c"
+    }
+  ]
+}

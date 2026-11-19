@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Linked",
+  "parent": "a9151d2296c24342ed8673513fe5df36a8539a850290959f635f9edbc59a8863",
+  "snapshot": "a19bc6e1e4065a476d29e0d27cb97d26c16448e80828a7214c2595841574ead3",
+  "time": "2026-11-19T20:19:25Z",
+  "author": "tsk 0.6.0 (fixture)",
+  "message": "link 1.2 -> 2: stock counts for the lease",
+  "subjects": [
+    "t3",
+    "t5"
+  ],
+  "forced": false
+}

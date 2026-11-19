@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "8521da5d475a38cb59a8273db5c2bbe6490dd21c48c0c0f499dc4e3373302c5c",
+  "snapshot": "e6404fa8253af4a257974218c8f2ad970bc1c2465e37af39ff0e586ea20359d4",
+  "time": "2026-11-19T20:19:19Z",
+  "author": "tsk 0.6.0 (fixture)",
+  "message": "amend 1 with Stock the shelves",
+  "subjects": [
+    "t1",
+    "t3"
+  ],
+  "forced": false
+}

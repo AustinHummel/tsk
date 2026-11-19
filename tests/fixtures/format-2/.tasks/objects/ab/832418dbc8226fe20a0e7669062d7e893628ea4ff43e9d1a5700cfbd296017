@@ -1,0 +1,10 @@
+task
+{
+  "id": "t3",
+  "title": "Stock the shelves",
+  "parent": "t1",
+  "seq": 3,
+  "body": "",
+  "types": [],
+  "fit": "stock"
+}

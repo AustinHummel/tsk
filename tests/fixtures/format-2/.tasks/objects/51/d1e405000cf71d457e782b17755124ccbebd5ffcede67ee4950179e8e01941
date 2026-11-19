@@ -1,0 +1,13 @@
+req
+{
+  "id": "r3",
+  "from": {
+    "kind": "task",
+    "id": "t5"
+  },
+  "on": "t3",
+  "reason": "stock counts for the lease",
+  "blocking": true,
+  "conditional": false,
+  "created": "2026-11-19T20:19:25Z"
+}

@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "96c73c8613c8225f3ba810f985ce519c6fadd405aed47ed48d3368fb7df3f1e5",
+  "snapshot": "a353538fcc45f7c84013fca328a78ce575098218a2e50a7b0f245a2367f9868a",
+  "time": "2026-11-19T20:21:53Z",
+  "author": "opus tsk-0.7.0-U2U3 2026-11-19",
+  "message": "add parallel_writers_never_lose_an_event failed once on Windows CI",
+  "subjects": [
+    "t107"
+  ],
+  "forced": false
+}

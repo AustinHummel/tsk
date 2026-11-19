@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "971b6779f38d480e001b4cc76a97c3bbdf9f1277e9dd3706e2032be0724a5f8f",
+  "snapshot": "1904a74f26daa63f0462497e9a956e2352cba83a0329a29cee8af5fad56425b1",
+  "time": "2026-11-19T20:19:18Z",
+  "author": "tsk 0.6.0 (fixture)",
+  "message": "amend 1 with Open each morning",
+  "subjects": [
+    "t1",
+    "t2"
+  ],
+  "forced": false
+}

@@ -130,8 +130,11 @@ impl std::error::Error for StoreMoved {}
 /// version). The number moves only when something on disk changes shape:
 /// 1 (0.5.0) added the `adopted` event kind and a task's former positions;
 /// 2 (0.6.0) added the `closed` and `reopened` event kinds and a task's
-/// `fit`, `ongoing` and `after`.
-pub const FORMAT: u32 = 2;
+/// `fit`, `ongoing` and `after`; 3 (0.7.0) added writer keys (config
+/// `ids = keyed`, ids such as `t150m`), which a binary that ignored them
+/// would mint over. Every store is raised to 3 by its first 0.7.0 write,
+/// keyed or not.
+pub const FORMAT: u32 = 3;
 
 impl Store {
     pub fn init(at: &Path) -> Result<Store> {

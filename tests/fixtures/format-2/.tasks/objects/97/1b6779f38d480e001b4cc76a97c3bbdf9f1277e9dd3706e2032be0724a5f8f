@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "55149ff188d603fc91cc602577325535cc027cfb74be732e86238699769b9e51",
+  "snapshot": "309fe210a62d6fb81f70922787e6457641987df6f08e3b0d9a13257a1f60f53c",
+  "time": "2026-11-19T20:19:12Z",
+  "author": "tsk 0.6.0 (fixture)",
+  "message": "add Run the shop",
+  "subjects": [
+    "t1"
+  ],
+  "forced": false
+}

@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "0dc232245a9d03d4cd99a002692d95be50c73bc7c60ce1fd15a7f2065e8868db",
+  "snapshot": "d25257f3733b410a4f654caf795c60077d71a2e2de14794144bc88d07196f09f",
+  "time": "2026-11-19T20:19:25Z",
+  "author": "tsk 0.6.0 (fixture)",
+  "message": "add Renew the lease",
+  "subjects": [
+    "t5"
+  ],
+  "forced": false
+}

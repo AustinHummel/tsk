@@ -14,7 +14,7 @@ A CLI for planning and tracking work, built the way Git is built: every
 change is an immutable event pointing at a snapshot of the whole plan, and
 status, readiness and loops are computed from history, never stored. Rust
 2021, one binary, pure-Rust dependencies, about 7,000 lines in fourteen
-modules under `src/`, 49 end-to-end tests under `tests/`. Version 0.6.0
+modules under `src/`, 50 end-to-end tests under `tests/`. Version 0.6.0
 (`Cargo.toml`). Public at https://github.com/AustinHummel/tsk, MIT.
 
 It is Austin Hummel's tool, maintained by his org's agents (his decision,
@@ -65,7 +65,10 @@ Each is enforced by a test named in brackets where one exists.
    form). A change to any on-disk form keeps reading every older form and
    is covered by a test with a fixture from the older version. See
    "Store format and upgrades" below.
-   [`flat_snapshots_from_0_1_still_load`]
+   [`flat_snapshots_from_0_1_still_load`,
+   `a_format_2_store_still_loads_and_is_raised_on_first_write`, whose
+   store under `tests/fixtures/format-2/` was written by the released
+   0.6.0 binary]
 8. **Nothing needs a terminal.** Every view and change works with `--json`
    and without an editor; a command that would open one fails at once with
    the `-F` advice when there is no terminal.
@@ -89,7 +92,7 @@ pass `--manifest-path C:\Projects\tsk\Cargo.toml`), and what green means:
 cd /c/Projects/tsk && nice -n 10 ~/.cargo/bin/cargo.exe test --locked
 ```
 
-Green is **49 passed, 0 failed, 1 ignored** (12 in `tests/cli.rs`, 16 in
+Green is **50 passed, 0 failed, 1 ignored** (12 in `tests/cli.rs`, 17 in
 `tests/agent_org.rs`, 7 in `tests/merge.rs`, 14 in `tests/trial.rs`, 0 in
 `src/`; the ignored one is the inner half of the `TSK_STORE` isolation
 test, which runs it in a child), about 10 s on a warm `target/`, a few minutes on a cold one. A change that adds a test
@@ -220,7 +223,7 @@ major release (1.0.0)". The first three were settled before he ruled.
 ## Store format and upgrades
 
 Since 0.5.0 `.tasks/config` carries a `format` line (`store::FORMAT`,
-2 since 0.6.0):
+3 since 0.7.0):
 `init` writes it, the first write by a newer binary raises it, and a
 binary meeting a format above what it knows refuses every command with
 one sentence naming the version needed. A store from before 0.5.0 has
@@ -236,7 +239,10 @@ and keep reading every older form. 1 added the `adopted` event and a
 task's `former` positions; 2 added the `closed` and `reopened` events and
 a task's `fit`, `ongoing` and `after` (a 0.5.0 that ignored `ongoing`
 would derive a running business as complete, and one that rewrote a
-task on `edit` would drop the fields). A release that raises it says so
+task on `edit` would drop the fields); 3 added writer keys (config
+`ids = keyed`, ids such as `t150m`, which a 0.6.0 that ignored them
+would mint over), and every store, keyed or not, is raised to it by its
+first 0.7.0 write (Austin, 2026-11-19: "Upgrade every store"). A release that raises it says so
 in its notes: every machine sharing a store upgrades together.
 
 Operating rule now (the org's pilot rule, 2026-11-03): **a store's

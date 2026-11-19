@@ -1,0 +1,11 @@
+task
+{
+  "id": "t1",
+  "title": "Run the shop",
+  "parent": null,
+  "seq": 1,
+  "body": "",
+  "types": [],
+  "narrative": "anything the shop needs",
+  "ongoing": true
+}

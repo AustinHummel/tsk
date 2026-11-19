@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Set",
+  "parent": "ed9f442e927eed9c44e757d9096c426111321eb529d71897ec7f5f9c460452a6",
+  "snapshot": "e802e03f091c64713b4fe64e0c461ed70809a87b48899a275757e0d9e616538a",
+  "time": "2026-11-19T20:19:19Z",
+  "author": "tsk 0.6.0 (fixture)",
+  "message": "ongoing 1.3: each sale day",
+  "subjects": [
+    "t4"
+  ],
+  "forced": false
+}

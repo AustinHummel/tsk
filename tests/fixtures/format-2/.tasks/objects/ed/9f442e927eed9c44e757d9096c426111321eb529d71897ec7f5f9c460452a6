@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "bb6e1279b54e4057e7a3b2dd77a44a963feaa8da0b634b17f6e250c0f99d8542",
+  "snapshot": "6068b67e6fc6bd9ea0fb95899c7bf10672e621cdcd6a2709ff1b7b37fbf687af",
+  "time": "2026-11-19T20:19:19Z",
+  "author": "tsk 0.6.0 (fixture)",
+  "message": "amend 1 with Spring sale",
+  "subjects": [
+    "t1",
+    "t4"
+  ],
+  "forced": false
+}

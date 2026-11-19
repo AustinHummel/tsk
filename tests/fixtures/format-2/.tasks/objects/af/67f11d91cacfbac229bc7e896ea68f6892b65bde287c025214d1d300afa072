@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Closed",
+  "parent": "0bae8521d99b71e9b702b4efe456e60b1e772bcfb42c3633c12ebcca32b599da",
+  "snapshot": "e802e03f091c64713b4fe64e0c461ed70809a87b48899a275757e0d9e616538a",
+  "time": "2026-11-19T20:19:24Z",
+  "author": "tsk 0.6.0 (fixture)",
+  "message": "close 1.3: the sale ended",
+  "subjects": [
+    "t4"
+  ],
+  "forced": false
+}

@@ -291,18 +291,19 @@ fn render_reports_its_folder_with_one_separator() {
 #[test]
 fn the_store_declares_its_format_and_a_newer_one_is_refused() {
     let p = Proj::new("format");
-    assert!(p.read(".tasks/config").contains("format = 2"), "{}", p.read(".tasks/config"));
+    assert!(p.read(".tasks/config").contains("format = 3"), "{}", p.read(".tasks/config"));
     // A store from before 0.5.0 has no line: it is read, and the first write adds one.
     std::fs::write(p.dir.join(".tasks/config"), "# tsk config: key = value\nauthor = old\n").unwrap();
     assert!(p.ok(&["plan"]).contains("no open tasks"));
     assert!(!p.read(".tasks/config").contains("format"), "a read declares nothing");
     p.ok(&["add", "root"]);
     let cfg = p.read(".tasks/config");
-    assert!(cfg.contains("format = 2") && cfg.contains("author = old"), "{}", cfg);
+    assert!(cfg.contains("format = 3") && cfg.contains("author = old"), "{}", cfg);
     // A store written by a newer tsk is refused, read or write, with one sentence.
-    p.ok(&["config", "format", "9"]);
+    // The next format up is the case a 0.7.0 binary meets first.
+    p.ok(&["config", "format", "4"]);
     let msg = p.fails(&["plan"]);
-    assert!(msg.contains("format 9") && msg.contains("upgrade tsk") && msg.lines().count() == 1, "{}", msg);
+    assert!(msg.contains("format 4") && msg.contains("up to format 3") && msg.contains("upgrade tsk") && msg.lines().count() == 1, "{}", msg);
     assert!(p.fails(&["add", "x"]).contains("upgrade tsk"));
     assert!(!p.read(".tasks/log").contains("add x"));
 }

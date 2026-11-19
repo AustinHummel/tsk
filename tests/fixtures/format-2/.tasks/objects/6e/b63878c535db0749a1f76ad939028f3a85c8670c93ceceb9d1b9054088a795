@@ -1,0 +1,20 @@
+tree
+{
+  "entries": [
+    {
+      "id": "t1",
+      "task": "a28398ae41561d97565037fab7504f354a83d300584f1a999ad08123b5ea665c",
+      "reqs": {
+        "r1": "a39953213ddbb5e5f295c1ede68ae5ca8144f10b5556be575a90200d7bf7f130"
+      },
+      "children": "ee940f9114c3d689c078943aee69583ca8c3381674c36a781eb999db36ebc885"
+    },
+    {
+      "id": "t5",
+      "task": "1b3e373db7fe084fb1a73d20a0ae7d8dfa146a29c54db3a4444b6d8342c2a817",
+      "reqs": {
+        "r2": "f54cbefcdb33a7d3c5b90b53444758450fa102f532dbd193e73b62f6b6532533"
+      }
+    }
+  ]
+}

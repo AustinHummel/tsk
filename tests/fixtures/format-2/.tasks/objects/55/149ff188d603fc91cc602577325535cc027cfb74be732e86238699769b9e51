@@ -1,0 +1,11 @@
+event
+{
+  "kind": "Init",
+  "parent": null,
+  "snapshot": "ef7348cbb244350b8dc7dd9f8a2bc64e1836016f20f7a656576c9ee4fd09b029",
+  "time": "2026-11-19T20:19:12Z",
+  "author": "tsk 0.6.0 (fixture)",
+  "message": "init",
+  "subjects": [],
+  "forced": false
+}

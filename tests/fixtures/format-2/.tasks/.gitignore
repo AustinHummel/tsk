@@ -1,0 +1,11 @@
+# transient files of a running tsk, its local reflog, and its disposable cache
+lock
+lock.broken-*
+lock.breaking-*
+HEAD.tmp*
+log.tmp*
+*.EDIT
+*.tmp
+reflog
+cache/
+claims/

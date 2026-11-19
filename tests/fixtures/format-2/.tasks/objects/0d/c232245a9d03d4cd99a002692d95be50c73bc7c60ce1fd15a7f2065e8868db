@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Reopened",
+  "parent": "af67f11d91cacfbac229bc7e896ea68f6892b65bde287c025214d1d300afa072",
+  "snapshot": "e802e03f091c64713b4fe64e0c461ed70809a87b48899a275757e0d9e616538a",
+  "time": "2026-11-19T20:19:25Z",
+  "author": "tsk 0.6.0 (fixture)",
+  "message": "reopen 1.3",
+  "subjects": [
+    "t4"
+  ],
+  "forced": false
+}

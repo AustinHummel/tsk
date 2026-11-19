@@ -1,0 +1,13 @@
+req
+{
+  "id": "r1",
+  "from": {
+    "kind": "person",
+    "id": "Dana"
+  },
+  "on": "t1",
+  "reason": "the shop never closes",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-19T20:19:12Z"
+}

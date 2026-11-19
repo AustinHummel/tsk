@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Completed",
+  "parent": "a5ab8e528f08794fdee5dd9f1af46508716866ac0ef11d124ccde64c54a92d34",
+  "snapshot": "a19bc6e1e4065a476d29e0d27cb97d26c16448e80828a7214c2595841574ead3",
+  "time": "2026-11-19T20:19:25Z",
+  "author": "tsk 0.6.0 (fixture)",
+  "message": "complete 1.1",
+  "subjects": [
+    "t2"
+  ],
+  "forced": false
+}

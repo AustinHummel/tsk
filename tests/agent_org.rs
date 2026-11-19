@@ -368,7 +368,7 @@ fn a_root_without_by_is_noted_and_refused_under_require_by() {
 }
 
 #[test]
-fn a_format_1_store_from_0_5_0_still_loads_and_rises_to_2() {
+fn a_format_1_store_from_0_5_0_still_loads_and_is_raised_on_first_write() {
     use sha2::Digest;
     let p = Proj::new("format1");
     // A store in 0.5.0's exact form: format 1, a task object without the
@@ -398,7 +398,7 @@ fn a_format_1_store_from_0_5_0_still_loads_and_rises_to_2() {
     assert!(p.read(".tasks/config").contains("format = 1"), "a read raises nothing");
     assert!(p.fails(&["show", "1"]).contains("is now 2"), "the vacated position is read from `former`");
     p.ok(&["amend", "t1", "piece", "--fit", "a part", "--core", "the rest"]);
-    assert!(p.read(".tasks/config").contains("format = 2"), "{}", p.read(".tasks/config"));
+    assert!(p.read(".tasks/config").contains("format = 3"), "{}", p.read(".tasks/config"));
     assert!(p.ok(&["plan"]).contains("from 0.5.0"));
 }
 
@@ -429,4 +429,45 @@ fn the_test_runner_never_lets_tsk_store_reach_the_binary() {
     let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     assert!(out.status.success() && text.contains("1 passed"), "{}", text);
     assert_eq!(decoy.read(".tasks/HEAD"), head, "the decoy store was written:\n{}", decoy.ok(&["log"]));
+}
+
+/// Copy a committed fixture store (`tests/fixtures/<name>/.tasks`) into a
+/// fresh temp project, without running `init`.
+fn fixture(name: &str) -> Proj {
+    fn copy(from: &std::path::Path, to: &std::path::Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for e in std::fs::read_dir(from).unwrap() {
+            let e = e.unwrap();
+            let dest = to.join(e.file_name());
+            if e.file_type().unwrap().is_dir() {
+                copy(&e.path(), &dest);
+            } else {
+                std::fs::copy(e.path(), dest).unwrap();
+            }
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("tsk-test-fixture-{}-{}", name, std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    copy(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name), &dir);
+    Proj { dir }
+}
+
+#[test]
+fn a_format_2_store_still_loads_and_is_raised_on_first_write() {
+    // Written by the released 0.6.0 binary: an ongoing root with a fit on
+    // each child, a closed-then-reopened ongoing child, a dated root, a
+    // link, a completed leaf.
+    let p = fixture("format-2");
+    assert!(p.read(".tasks/config").contains("format = 2"), "{}", p.read(".tasks/config"));
+    let plan = p.ok(&["plan"]);
+    for line in ["[>] 1 t1 Run the shop (1 done)  <ongoing>", "[ ] 1.2 t3 Stock the shelves  <ready>", "[ ] 1.3 t4 Spring sale  <ongoing>", "[ ] 2 t5 Renew the lease  <not before 2027-01-15>"] {
+        assert!(plan.contains(line), "missing {:?} in:\n{}", line, plan);
+    }
+    assert!(p.ok(&["show", "1.2"]).contains("fits: stock"));
+    assert!(p.ok(&["log"]).contains("reopened"));
+    assert!(p.read(".tasks/config").contains("format = 2"), "a read raises nothing");
+    p.ok(&["start", "1.2"]);
+    assert!(p.read(".tasks/config").contains("format = 3"), "{}", p.read(".tasks/config"));
+    assert!(p.ok(&["plan"]).contains("[>] 1.2 t3 Stock the shelves"));
+    assert_eq!(p.ok(&["rev-list"]).lines().count(), 13, "every 0.6.0 event kept, one added");
 }

@@ -1,0 +1,13 @@
+req
+{
+  "id": "r2",
+  "from": {
+    "kind": "person",
+    "id": "Landlord"
+  },
+  "on": "t5",
+  "reason": "it lapses in March",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-19T20:19:25Z"
+}

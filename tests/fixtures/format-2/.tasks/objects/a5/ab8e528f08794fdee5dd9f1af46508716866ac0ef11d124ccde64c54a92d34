@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Started",
+  "parent": "cf2f3ed779fd931ba91e1a61b87255abf472d4a26c51bc84a36b857fe43fde85",
+  "snapshot": "a19bc6e1e4065a476d29e0d27cb97d26c16448e80828a7214c2595841574ead3",
+  "time": "2026-11-19T20:19:25Z",
+  "author": "tsk 0.6.0 (fixture)",
+  "message": "start 1.1",
+  "subjects": [
+    "t2"
+  ],
+  "forced": false
+}
