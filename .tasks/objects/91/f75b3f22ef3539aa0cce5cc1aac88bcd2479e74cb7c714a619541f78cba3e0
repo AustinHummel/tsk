@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Completed",
+  "parent": "694b10ee9f801dc0b920fd6b1ac7e6bf3d5898734127588d92b7cd69875f8892",
+  "snapshot": "304ab5daef9681f2902b5a06f3dc6fd14429b09d3759b91e3187b7e2ecfad86b",
+  "time": "2026-11-20T04:15:23Z",
+  "author": "opus side mac-mini 2026-11-19",
+  "message": "complete 12.5.3",
+  "subjects": [
+    "t104"
+  ],
+  "forced": false
+}
