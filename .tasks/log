@@ -211,3 +211,8 @@
 2026-11-19T23:16:52Z  cdf936c4fd  amended          amend 12 with Fix the fourth blind review's edges  [12 12.10]  -- opus tsk-0.7.0-fixes-4 2026-11-19
 2026-11-19T23:16:56Z  18c6e1e008  started          start 12.10  [12.10]  -- opus tsk-0.7.0-fixes-4 2026-11-19
 2026-11-19T23:25:06Z  f104802ba0  completed        complete 12.10  [12.10]  -- opus tsk-0.7.0-fixes-4 2026-11-19
+2026-11-20T03:46:28Z  fde0dbf572  created          add Opposite --prefer answers diverge silently  [14]  -- opus builder canonical-status-merge 2026-11-19
+2026-11-20T03:46:35Z  00c8e3a7c9  amended          amend 12 with Only the shared-line merge stops on a status conflict  [12 12.11]  -- opus builder canonical-status-merge 2026-11-19
+2026-11-20T03:46:44Z  e2f44bdaab  edited           edit 12.11 (body)  [12.11]  -- opus builder canonical-status-merge 2026-11-19
+2026-11-20T03:46:44Z  cb8c0c95b5  started          start 12.11  [12.11]  -- opus builder canonical-status-merge 2026-11-19
+2026-11-20T03:46:44Z  534eb8ecb4  completed        complete 12.11  [12.11]  -- opus builder canonical-status-merge 2026-11-19

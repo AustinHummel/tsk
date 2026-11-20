@@ -156,9 +156,12 @@ snapshot and applies it as a patch, producing a new event with
 `replayed_from` set. Because the order is canonical, both copies converge
 on identical events and ids; colliding ids are renumbered in that order
 and reported; a field changed differently on both sides stops the merge
-until `--prefer`, and so does a task whose status events on the two sides
-leave it in different statuses (the losing side's status events stop
-naming it; the events stay). The git merge driver (`tsk git-setup` registers it)
+until `--prefer`; a task whose status changed on both sides takes the
+later status event by the clock, as the order has it, and is reported.
+The shared-line merge (`--upstream`, and git's driver on a keyed store)
+stops instead on a task whose status events on the two sides leave it in
+different statuses, until `--prefer` (the losing side's status events
+stop naming it; the events stay). The git merge driver (`tsk git-setup` registers it)
 resolves a `HEAD` conflict by writing `merge <theirs>` as HEAD's second
 line, and the next command performs the merge. The merge event's message
 names the pre-merge HEAD; `tsk reset` is the way back.

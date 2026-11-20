@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Started",
+  "parent": "e2f44bdaab3d83b79a14435e3abdfed619f4cf6c89cb3fde1761c8b782f97b43",
+  "snapshot": "39a794a61152495e60519d6479164d9a757522937dbaf52f20bea5bd48173ab4",
+  "time": "2026-11-20T03:46:44Z",
+  "author": "opus builder canonical-status-merge 2026-11-19",
+  "message": "start 12.11",
+  "subjects": [
+    "t114"
+  ],
+  "forced": false
+}

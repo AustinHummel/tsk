@@ -1,0 +1,13 @@
+req
+{
+  "id": "r50",
+  "from": {
+    "kind": "person",
+    "id": "a specialist reviewing 0.7.0's status-conflict rule (2026-11-19), reproduced by the builder of the canonical status fix"
+  },
+  "on": "t113",
+  "reason": "two copies of an unkeyed store that each resolve one field conflict with --prefer ours end different, and both say already merged",
+  "blocking": false,
+  "conditional": false,
+  "created": "2026-11-20T03:46:28Z"
+}

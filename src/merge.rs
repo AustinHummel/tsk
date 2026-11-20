@@ -11,10 +11,11 @@
 //! each other converge instead of disagreeing forever about which task is
 //! `t20`. Ids that collide are renumbered in that order and the map is
 //! reported; a field changed differently on both sides is a conflict,
-//! resolved only by `--prefer`, and so, in both modes, is a task whose
-//! status events on the two sides leave it in different statuses; a
-//! replayed event names its original in
-//! `replayed_from`, which is how a copy knows what it already holds.
+//! resolved only by `--prefer`. A task whose status changed on both sides
+//! is not: the later status event by the clock stands, as that order has
+//! it from either copy, and every such task is reported with what it ends
+//! in. A replayed event names its original in `replayed_from`, which is
+//! how a copy knows what it already holds.
 //!
 //! The shared-line merge (`--upstream`, and whatever reaches a keyed store
 //! through git) is the other mode: the other HEAD is the line every copy
@@ -22,8 +23,11 @@
 //! copy's events that are not on it (by hash or by the original they stand
 //! for) are replayed after it, in our order. Nothing on their line moves:
 //! our new tasks take the next positions, and every number of ours that
-//! moved, and every task whose status changed on both sides and was
-//! settled (the same on both, or by `--prefer`), is reported.
+//! moved is reported. Here a task whose status events on the two sides
+//! leave it in different statuses is a conflict, resolved only by
+//! `--prefer`: ours would stand only because it is replayed after the
+//! line. Every task whose status changed on both sides and was settled
+//! (the same on both, or by `--prefer`) is reported.
 
 use crate::commands::{done, json_mode, say, store_open};
 use crate::commit::{self, Commit};
@@ -431,6 +435,9 @@ struct Pair {
     theirs: (Status, EventKind, String),
     /// Which side `--prefer` made stand, when the two disagree.
     preferred: Option<Side>,
+    /// The two disagree and nothing stops on it (the canonical merge): the
+    /// later by the clock stands.
+    later: bool,
 }
 
 impl Pair {
@@ -441,20 +448,25 @@ impl Pair {
     fn how(&self) -> String {
         match self.preferred {
             Some(s) => format!("{} preferred", s.name()),
+            None if self.later => "the later stands".to_string(),
             None => "the same on both sides".to_string(),
         }
     }
 }
 
-/// The status rule: a task whose status changed on both sides since the
-/// fork, and which the two sides leave in different statuses, is a
-/// conflict, like a field changed differently on both sides. Both sides
-/// leaving it in the same status (both completed) is not. With `--prefer`,
-/// the other side's status events in `staged` stop naming the task (each
-/// event stays, so the original it stands for is still on the line), and
-/// the preferred side's status stands. Returns every pair, settled or not;
-/// conflicts go to `conflicts`, resolutions to `resolved`.
-fn settle_status(replayed: &Sets, line: &Sets, rside: Side, prefer: Option<Side>, staged: &mut [(Item, Event, Plan)], plan: &Plan, conflicts: &mut Vec<String>, resolved: &mut usize) -> Vec<Pair> {
+/// The status rule. With `stop` (the shared-line merge), a task whose
+/// status changed on both sides since the fork, and which the two sides
+/// leave in different statuses, is a conflict, like a field changed
+/// differently on both sides. Both sides leaving it in the same status
+/// (both completed) is not. With `--prefer`, the other side's status
+/// events in `staged` stop naming the task (each event stays, so the
+/// original it stands for is still on the line), and the preferred side's
+/// status stands. Without `stop` (the canonical merge, whose order is the
+/// clock's from either copy) a disagreement is no conflict and `--prefer`
+/// touches no status event: the later stands. Returns every pair, settled
+/// or not; conflicts go to `conflicts`, resolutions to `resolved`.
+#[allow(clippy::too_many_arguments)]
+fn settle_status(replayed: &Sets, line: &Sets, rside: Side, stop: bool, prefer: Option<Side>, staged: &mut [(Item, Event, Plan)], plan: &Plan, conflicts: &mut Vec<String>, resolved: &mut usize) -> Vec<Pair> {
     let say = |s: &(Status, EventKind, String)| format!("{}, {} at {}", s.0.name(), s.1.name(), s.2);
     let mut pairs = Vec::new();
     for (id, r) in replayed {
@@ -462,8 +474,10 @@ fn settle_status(replayed: &Sets, line: &Sets, rside: Side, prefer: Option<Side>
         // In git's terms: the replayed side is ours unless the sides were
         // swapped, so the report and `--prefer` name the sides as git does.
         let (o, t) = if rside == Side::Ours { (r, l) } else { (l, r) };
-        let mut p = Pair { id: id.clone(), ours: o.clone(), theirs: t.clone(), preferred: None };
-        if !p.agree() {
+        let mut p = Pair { id: id.clone(), ours: o.clone(), theirs: t.clone(), preferred: None, later: false };
+        if !p.agree() && !stop {
+            p.later = true;
+        } else if !p.agree() {
             match prefer {
                 None => conflicts.push(format!("{}: status (ours {}; theirs {})", plan.label(id), say(o), say(t))),
                 Some(win) => {
@@ -529,6 +543,9 @@ fn perform_canonical(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run
     let mut cur = Some(theirs.clone());
     let mut base: Option<Hash> = None;
     let mut skipped = 0usize;
+    // Every event on their side since the fork and the original each stands
+    // for: what they already hold of ours.
+    let mut their_held: HashSet<Hash> = HashSet::new();
     while let Some(h) = cur {
         if our_hashes.contains(&h) {
             base = Some(h);
@@ -537,6 +554,8 @@ fn perform_canonical(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run
         let ev: Event = store.read_object(ObjectType::Event, &h).with_context(|| format!("event {} of the other history", &h[..10]))?;
         cur = ev.parent.clone();
         let id = identity(&h, &ev);
+        their_held.insert(h.clone());
+        their_held.insert(id.clone());
         if is_marker(ev.kind) || have.contains(&id) || have.contains(&h) {
             skipped += 1;
             continue;
@@ -604,15 +623,25 @@ fn perform_canonical(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run
     let mut rp = Replay::new(plan, prefer, false);
     let mut staged = stage(store, &mut rp, all.drain(keep..).collect(), &mut out)?;
     refuse_clash(&rp, &base)?;
-    // Status changed on both sides. The kept prefix is ours, with final ids
-    // already, and before every event of theirs; staged subjects are mapped.
-    let our_sets = sets(all.iter().map(|i| &i.ev).chain(staged.iter().filter(|(i, _, _)| i.side == Side::Ours).map(|(_, e, _)| e)));
+    // Status changed on both sides: the later stands, as the chronological
+    // order has it from either copy, and each is reported. The kept prefix
+    // is ours, with final ids already, and before every event of theirs;
+    // staged subjects are mapped. An event of ours that their side already
+    // holds (they merged it since the fork, which never moves) is not a
+    // change on our side.
+    let fresh = |i: &Item| !their_held.contains(&i.id) && !their_held.contains(&i.hash);
+    let our_sets = sets(all.iter().filter(|i| fresh(i)).map(|i| &i.ev).chain(staged.iter().filter(|(i, _, _)| i.side == Side::Ours && fresh(i)).map(|(_, e, _)| e)));
     let their_sets = sets(staged.iter().filter(|(i, _, _)| i.side == Side::Theirs).map(|(_, e, _)| e));
-    let pairs = settle_status(&our_sets, &their_sets, Side::Ours, prefer, &mut staged, &rp.plan, &mut rp.conflicts, &mut rp.resolved);
+    let pairs = settle_status(&our_sets, &their_sets, Side::Ours, false, prefer, &mut staged, &rp.plan, &mut rp.conflicts, &mut rp.resolved);
+    // What each ends in on the merged line.
+    let start_idx = our_hist.iter().position(|(h, _)| *h == start_hash).unwrap();
+    let mut ends = crate::state::leaf_statuses(&our_hist[start_idx..]);
+    for (_, e, _) in &staged {
+        crate::state::apply_event(&mut ends, e);
+    }
     for p in &pairs {
-        if p.agree() || p.preferred.is_some() {
-            out.both_touched.push(format!("{}: ours {} at {}, theirs {} at {}; {}", rp.plan.label(&p.id), p.ours.1.name(), p.ours.2, p.theirs.1.name(), p.theirs.2, p.how()));
-        }
+        let end = ends.get(&p.id).map(|s| s.name()).unwrap_or("todo");
+        out.both_touched.push(format!("{}: ours {} at {}, theirs {} at {}; {} (ends {})", rp.plan.label(&p.id), p.ours.1.name(), p.ours.2, p.theirs.1.name(), p.theirs.2, p.how(), end));
     }
     out.conflicts = rp.conflicts.clone();
     out.resolved = rp.resolved;
@@ -664,6 +693,9 @@ fn perform_canonical(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run
     }
     if out.resolved > 0 {
         msg.push_str(&format!("; {} conflict(s) resolved preferring {}", out.resolved, prefer.map(|p| p.name()).unwrap_or("?")));
+    }
+    if !out.both_touched.is_empty() {
+        msg.push_str(&format!("; status on both sides: {}", out.both_touched.join("; ")));
     }
     let h = commit::write_on(store, &rp.plan, Some(prev.clone()), Commit::new(EventKind::Merged, msg, vec![]))?;
     // One reflog line for the whole merge: the way back is `tsk reset <old>`.
@@ -841,7 +873,7 @@ fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run:
     // because it is replayed after theirs, so a disagreement is a conflict.
     let their_sets = sets(their_new.iter().copied());
     let our_sets = sets(staged.iter().map(|(_, e, _)| e));
-    let pairs = settle_status(&our_sets, &their_sets, rside, prefer, &mut staged, &rp.plan, &mut rp.conflicts, &mut rp.resolved);
+    let pairs = settle_status(&our_sets, &their_sets, rside, true, prefer, &mut staged, &rp.plan, &mut rp.conflicts, &mut rp.resolved);
     out.conflicts = rp.conflicts.clone();
     out.resolved = rp.resolved;
     out.renumbered = rp.renumbered.clone();
@@ -1316,8 +1348,8 @@ fn settle_each(store: &Store, writing: bool) -> Result<()> {
             for (id, a, b) in &out.moved {
                 eprintln!("tsk: moved: {} {} -> {}", id, a, b);
             }
-            for b in &out.both {
-                eprintln!("tsk: status on both sides: {}", b.text);
+            for b in out.both_touched.iter().chain(out.both.iter().map(|b| &b.text)) {
+                eprintln!("tsk: status on both sides: {}", b);
             }
         }
     }

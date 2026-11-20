@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Edited",
+  "parent": "00c8e3a7c93f0bf4354bfd1b3b09f923979cb0e9d1afc5f9395a5a6b8b94520e",
+  "snapshot": "39a794a61152495e60519d6479164d9a757522937dbaf52f20bea5bd48173ab4",
+  "time": "2026-11-20T03:46:44Z",
+  "author": "opus builder canonical-status-merge 2026-11-19",
+  "message": "edit 12.11 (body)",
+  "subjects": [
+    "t114"
+  ],
+  "forced": false
+}

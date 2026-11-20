@@ -1,0 +1,10 @@
+task
+{
+  "id": "t114",
+  "title": "Only the shared-line merge stops on a status conflict",
+  "parent": "t96",
+  "seq": 114,
+  "body": "",
+  "types": [],
+  "fit": "a specialist's review of 12.7 (2026-11-19): the canonical merge goes back to the later status standing, reported on every path; the shared-line merge keeps the conflict"
+}

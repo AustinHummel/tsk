@@ -154,9 +154,12 @@ other copy's HEAD as pending; the next tsk command replays both sides'
 events since the fork in one chronological order, so every copy converges
 on the same ids and the same plan, renumbering any colliding ids and
 reporting the map. A field changed differently on both sides stops the
-replay until someone chooses `--prefer ours` or `--prefer theirs`, and so
-does a task whose status moved on both sides to different statuses (both
-sides completing it is no conflict). For an
+replay until someone chooses `--prefer ours` or `--prefer theirs`; a task
+whose status moved on both sides takes the later move by the clock and
+is reported (on a keyed store, whose shared-line merge keeps the
+published line, it stops the replay too, unless both sides left it in
+the same status; copies that want a status collision to stop turn
+writer keys on). For an
 agent, the rule is: after a pull, run `tsk ready` (which settles any
 pending merge) before writing, and treat a refused write as a conflict to
 read with `tsk merge --dry-run` and resolve. Commit the store after the

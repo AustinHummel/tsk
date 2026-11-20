@@ -121,12 +121,34 @@ figure out how it should be resolved on a case-by-case basis."
   the line by `replayed_from`.
 - Tasks are compared by their id on the merged line (our subjects
   mapped), so an unkeyed id renamed by the merge is not taken for theirs.
-- **The canonical merge follows the same rule.** It replaced "the later
-  stands": the later event by the clock is the same silent override (a
-  copy that starts a task it has not seen completed reopens it), and the
-  rule is Austin's for a both-sides change, not for one mode. As with a
-  field conflict there, a copy that merges the other's resolution may be
-  asked again for the same task.
+- **The canonical merge does not follow it** (decided 2026-11-19, after
+  a specialist's review of the first version, which stopped every
+  merge). The canonical merge of an unkeyed store keeps "the later
+  stands" and reports every task touched on both sides: `1.1 t2 Build:
+  ours completed at ..., theirs started at ...; the later stands (ends
+  in-progress)`, in the text, `--json` (`both_touched`), the `Merged`
+  event's message, and a merge git brought (settled at the next
+  command). `--prefer` touches no status there. Why the rule is the
+  shared line's alone:
+  - The canonical order is the clock's, the same from either copy, so
+    the later event standing is no artifact of replay order; on the
+    shared line ours stands only because it is replayed after theirs.
+  - The canonical merge's fork never advances: two copies that merged
+    both ways still hold different HEADs, and every event of ours since
+    the old fork counts. Stopping there refused a copy that had seen
+    the other's `complete` and then uncompleted it (only one side
+    changed the status since the two met), and only from one side. The
+    pairs now leave out an event of ours their side already holds.
+  - A second copy was asked again for the same task, and opposite
+    `--prefer` answers on two copies left them disagreeing for good
+    while each said "already merged".
+  - Through git on an unkeyed store the canonical report was not
+    printed at all, so a stop there was the only signal; now the report
+    is printed on every path.
+
+  Two copies that both write and want a status collision to stop
+  should turn writer keys on (`tsk config ids keyed`, a key on each)
+  and merge with `--upstream`.
 
 **The report.** Text, `--json`, and the `Merged` event's message all
 carry it:

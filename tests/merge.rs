@@ -161,22 +161,88 @@ fn a_field_changed_on_both_sides_is_a_conflict_until_preferred() {
     assert!(s12.contains("Build a CLI (alice)") && s12.contains("a body only bob set"), "disjoint fields merge: {}", s12);
     assert!(a.fails(&["show", "r2"]).contains("no task") || !a.ok(&["show", "1.3"]).contains("r2 "), "r2 removed as theirs preferred");
     assert!(a.ok(&["log", "-n", "1"]).contains("resolved preferring theirs"));
-    // A status changed differently on both sides is a conflict too, in the
-    // canonical merge as in the shared-line one: the later event does not
-    // simply stand.
+    // A status changed differently on both sides is not a conflict in the
+    // canonical merge: its order is the clock's from either copy, so the
+    // later event stands, and the merge says so.
     let c = Proj::new("conflict-c");
     copy_store(&a.dir, &c.dir);
     a.ok(&["complete", "1.1"]);
     std::thread::sleep(std::time::Duration::from_millis(1100));
     c.ok(&["start", "1.1"]);
     bring_objects(&c.dir, &a.dir);
-    let h = head(&a);
-    let msg = a.fails(&["merge", &head(&c)]);
-    assert!(msg.contains("1.1 t2 ") && msg.contains("status (ours complete, completed at ") && msg.contains("; theirs in-progress, started at ") && msg.contains("nothing was written"), "{}", msg);
-    assert_eq!(head(&a), h, "nothing written");
-    let out = a.ok(&["merge", &head(&c), "--prefer", "theirs"]);
-    assert!(out.contains("status on both sides: 1.1 t2 ") && out.contains("; theirs preferred"), "{}", out);
-    assert!(a.ok(&["plan"]).contains("[>] 1.1"), "theirs preferred: the start stands");
+    let out = a.ok(&["merge", &head(&c)]);
+    assert!(out.contains("status on both sides: 1.1 t2 ") && out.contains(": ours completed at ") && out.contains(", theirs started at ") && out.contains("; the later stands (ends in-progress)"), "{}", out);
+    assert!(a.ok(&["plan"]).contains("[>] 1.1"), "the later start stands");
+    assert!(a.ok(&["log", "-n", "1"]).contains("status on both sides: 1.1 t2 "), "the merge event carries it");
+}
+
+/// An unkeyed store settles what git brought as the canonical merge; a
+/// status changed on both sides is said there too.
+#[test]
+fn a_canonical_merge_through_the_pending_marker_reports_status_on_both_sides() {
+    let (a, b) = pair("canon-marker-status", None);
+    a.ok(&["complete", "1.1"]);
+    later();
+    b.ok(&["start", "1.1"]);
+    bring_objects(&b.dir, &a.dir);
+    let (ours, theirs) = (head(&a), head(&b));
+    std::fs::write(a.dir.join(".tasks/HEAD"), format!("{}\nmerge {}\n", ours, theirs)).unwrap();
+    let (ok, text) = a.run(&["plan"]);
+    assert!(ok && text.contains("tsk: merged ") && text.contains("tsk: status on both sides: 1.1 t2 ") && text.contains("; the later stands (ends in-progress)"), "{}", text);
+    assert!(text.contains("[>] 1.1"), "{}", text);
+    assert_eq!(a.read(".tasks/HEAD").lines().count(), 1, "settled");
+}
+
+/// A complete merged both ways, then uncompleted on one copy: only that
+/// copy changed the status since the two last met, so neither merge stops
+/// or claims both sides changed it, and the copies agree.
+#[test]
+fn an_informed_uncomplete_merges_cleanly_from_both_copies() {
+    let (a, b) = pair("informed", None);
+    a.ok(&["complete", "1.1"]);
+    b.ok(&["add", "bob's root"]);
+    bring_objects(&b.dir, &a.dir);
+    a.ok(&["merge", &head(&b)]);
+    bring_objects(&a.dir, &b.dir);
+    b.ok(&["merge", &head(&a)]);
+    assert!(b.ok(&["plan", "-a"]).contains("[x] 1.1"));
+    assert_ne!(head(&a), head(&b), "the copies' HEADs differ after merging both ways");
+    later();
+    b.ok(&["uncomplete", "1.1"]);
+    later();
+    a.ok(&["add", "alice's root"]);
+    bring_objects(&b.dir, &a.dir);
+    bring_objects(&a.dir, &b.dir);
+    let (ha, hb) = (head(&a), head(&b));
+    let out = a.ok(&["merge", &hb]);
+    assert!(out.contains("merged") && !out.contains("status on both sides"), "{}", out);
+    let out = b.ok(&["merge", &ha]);
+    assert!(out.contains("merged") && !out.contains("status on both sides"), "{}", out);
+    let (pa, pb) = (a.ok(&["plan", "-a"]), b.ok(&["plan", "-a"]));
+    assert!(pa.contains("[ ] 1.1"), "the uncomplete stands: {}", pa);
+    assert_eq!(pa, pb, "both copies end the same");
+}
+
+/// A status changed on both sides ends the same on both copies whichever
+/// merges first, and `--prefer` does not move it.
+#[test]
+fn a_status_changed_on_both_sides_ends_the_same_whichever_copy_merges() {
+    let (a, b) = pair("either-first", None);
+    a.ok(&["complete", "1.1"]);
+    later();
+    b.ok(&["start", "1.1"]);
+    bring_objects(&b.dir, &a.dir);
+    bring_objects(&a.dir, &b.dir);
+    let (ha, hb) = (head(&a), head(&b));
+    let c = Proj::new("either-first-c");
+    copy_store(&a.dir, &c.dir);
+    a.ok(&["merge", &hb]);
+    b.ok(&["merge", &ha]);
+    c.ok(&["merge", &hb, "--prefer", "ours"]);
+    let (pa, pb, pc) = (a.ok(&["plan", "-a"]), b.ok(&["plan", "-a"]), c.ok(&["plan", "-a"]));
+    assert!(pa.contains("[>] 1.1"), "the later start stands: {}", pa);
+    assert_eq!(pa, pb, "the same whichever copy merges");
+    assert_eq!(pa, pc, "--prefer does not settle a status in the canonical merge");
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -320,8 +386,9 @@ fn closed_and_reopened_replay_in_a_merge() {
     let plan = a.ok(&["plan"]);
     assert!(plan.contains("[>] 1 t1 Run") && plan.contains("[ ] 1.2 t3 New"), "{}", plan);
     assert!(a.ok(&["log", "-n", "4"]).contains("closed"), "the close is on the merged line");
-    // A reopen on one side against a reopen and a close on the other is a
-    // status conflict: close and reopen move status as complete and uncomplete do.
+    // A reopen on one side against a reopen and a close on the other: close
+    // and reopen move status as complete and uncomplete do, and the later
+    // stands.
     a.ok(&["complete", "1.2"]);
     a.ok(&["close", "1", "done again"]);
     let c = Proj::new("close-c");
@@ -331,11 +398,9 @@ fn closed_and_reopened_replay_in_a_merge() {
     c.ok(&["reopen", "1"]);
     c.ok(&["close", "1", "shut"]);
     bring_objects(&c.dir, &a.dir);
-    let msg = a.fails(&["merge", &head(&c)]);
-    assert!(msg.contains("1 t1 Run: status (ours todo, reopened at ") && msg.contains("; theirs complete, closed at "), "{}", msg);
-    let out = a.ok(&["merge", &head(&c), "--prefer", "theirs"]);
-    assert!(out.contains("status on both sides: 1 t1 Run: ours reopened at") && out.contains(", theirs closed at ") && out.contains("theirs preferred"), "{}", out);
-    assert!(a.ok(&["plan", "-a"]).contains("[x] 1 t1 Run"), "theirs preferred: the close stands");
+    let out = a.ok(&["merge", &head(&c)]);
+    assert!(out.contains("status on both sides: 1 t1 Run: ours reopened at") && out.contains(", theirs closed at ") && out.contains("the later stands"), "{}", out);
+    assert!(a.ok(&["plan", "-a"]).contains("[x] 1 t1 Run"), "the later close stands");
 }
 
 // ----- 0.7: writer keys -----------------------------------------------------

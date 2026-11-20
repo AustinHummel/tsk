@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Created",
+  "parent": "f104802ba0ad61167960fefd9eee7b25ef0f3610aef8dc4096e26be7a18c90c5",
+  "snapshot": "e13625d3614fe51f96eb45bbdf01729182d7550169879d34ad2998cd6da2481f",
+  "time": "2026-11-20T03:46:28Z",
+  "author": "opus builder canonical-status-merge 2026-11-19",
+  "message": "add Opposite --prefer answers diverge silently",
+  "subjects": [
+    "t113"
+  ],
+  "forced": false
+}

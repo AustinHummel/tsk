@@ -316,16 +316,23 @@ place; `tsk diff` still finds the committed HEAD through `replayed_from`.
 Ids that collide are renumbered in that order, on whichever side comes
 later, and the map is reported (`ours t20 is now t21`; outline numbers
 follow). A field changed differently on both sides is a conflict: nothing
-is written, and `--prefer ours` or `--prefer theirs` decides. So is a
-status changed on both sides: a task that a status event (start, pause,
-complete, uncomplete, drop, spike, close, reopen) names on each side
-since the fork, and that the two sides leave in different statuses, stops
-the merge, naming both (`1.1 t2 Build: status (ours in-progress, started
-at ...; theirs complete, completed at ...)`); the preferred side's status
-stands. Both sides leaving it in the same status (both completed) is no
-conflict. Each task touched on both sides and settled is reported
-(`status on both sides: ...; the same on both sides` or `; theirs
-preferred`).
+is written, and `--prefer ours` or `--prefer theirs` decides. A status
+changed on both sides (a task that a status event: start, pause,
+complete, uncomplete, drop, spike, close, reopen, names on each side
+since the fork) is not a conflict in this merge: the later event by the
+clock stands, as the one order has it from either copy, and every such
+task is reported, by `tsk merge` and by a merge git brought alike
+(`status on both sides: 1.1 t2 Build: ours completed at ..., theirs
+started at ...; the later stands (ends in-progress)`, or `; the same on
+both sides`). `--prefer` does not touch a status here. The shared-line
+merge of a keyed store (`--upstream`, and whatever reaches a keyed store
+through git) stops on it instead: a task the two sides leave in
+different statuses is a conflict naming both (`1.1 t2 Build: status
+(ours in-progress, started at ...; theirs complete, completed at ...)`),
+and the preferred side's status stands; the same status on both sides
+is none. Two copies that both write and want a status collision to stop
+should turn writer keys on (`tsk config ids keyed`, then `tsk key
+<name>` on each copy) and merge with `--upstream`.
 `--dry-run` shows all of this without writing.
 
 Git carries the objects (add-only, never a conflict); only `HEAD` can

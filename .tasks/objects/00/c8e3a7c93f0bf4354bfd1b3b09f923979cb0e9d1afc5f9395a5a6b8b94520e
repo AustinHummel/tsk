@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "fde0dbf57221d7c91980f5fc9761753edd58885b028bf881e798f467a652f159",
+  "snapshot": "911992df825e6454f7110928d74e008f8b3b1d5805555466c75d688a28b8036d",
+  "time": "2026-11-20T03:46:35Z",
+  "author": "opus builder canonical-status-merge 2026-11-19",
+  "message": "amend 12 with Only the shared-line merge stops on a status conflict",
+  "subjects": [
+    "t96",
+    "t114"
+  ],
+  "forced": false
+}

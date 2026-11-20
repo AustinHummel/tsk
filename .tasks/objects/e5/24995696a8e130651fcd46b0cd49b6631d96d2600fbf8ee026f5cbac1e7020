@@ -1,0 +1,10 @@
+task
+{
+  "id": "t114",
+  "title": "Only the shared-line merge stops on a status conflict",
+  "parent": "t96",
+  "seq": 114,
+  "body": "12.7 (cc54b25) made a status changed on both sides stop every merge. A specialist showed it wrong for the canonical merge: its fork never advances, so a copy that saw the other's complete and then uncompleted it was refused from one side only; a second copy was asked again; opposite --prefer answers left copies disagreeing; and through git on an unkeyed store the canonical report was never printed. Now: settle_status stops only for the shared-line merge; the canonical merge lets the later stand, reports each pair (ours X at T, theirs Y at T; the later stands (ends Z)) in the text, JSON, the Merged message and the pending-marker path, and leaves out events of ours their side already holds. Tests: the canonical both-sides case and the close/reopen case back to the later standing; new: the pending-marker report, the informed uncomplete from both copies, the same end whichever copy merges first.",
+  "types": [],
+  "fit": "a specialist's review of 12.7 (2026-11-19): the canonical merge goes back to the later status standing, reported on every path; the shared-line merge keeps the conflict"
+}
