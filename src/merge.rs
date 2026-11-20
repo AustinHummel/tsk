@@ -543,9 +543,6 @@ fn perform_canonical(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run
     let mut cur = Some(theirs.clone());
     let mut base: Option<Hash> = None;
     let mut skipped = 0usize;
-    // Every event on their side since the fork and the original each stands
-    // for: what they already hold of ours.
-    let mut their_held: HashSet<Hash> = HashSet::new();
     while let Some(h) = cur {
         if our_hashes.contains(&h) {
             base = Some(h);
@@ -554,8 +551,6 @@ fn perform_canonical(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run
         let ev: Event = store.read_object(ObjectType::Event, &h).with_context(|| format!("event {} of the other history", &h[..10]))?;
         cur = ev.parent.clone();
         let id = identity(&h, &ev);
-        their_held.insert(h.clone());
-        their_held.insert(id.clone());
         if is_marker(ev.kind) || have.contains(&id) || have.contains(&h) {
             skipped += 1;
             continue;
@@ -626,11 +621,10 @@ fn perform_canonical(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run
     // Status changed on both sides: the later stands, as the chronological
     // order has it from either copy, and each is reported. The kept prefix
     // is ours, with final ids already, and before every event of theirs;
-    // staged subjects are mapped. An event of ours that their side already
-    // holds (they merged it since the fork, which never moves) is not a
-    // change on our side.
-    let fresh = |i: &Item| !their_held.contains(&i.id) && !their_held.contains(&i.hash);
-    let our_sets = sets(all.iter().filter(|i| fresh(i)).map(|i| &i.ev).chain(staged.iter().filter(|(i, _, _)| i.side == Side::Ours && fresh(i)).map(|(_, e, _)| e)));
+    // staged subjects are mapped. Every event of ours since the fork counts,
+    // even one their side already holds: holding it does not mean they knew
+    // of it when they changed the status.
+    let our_sets = sets(all.iter().map(|i| &i.ev).chain(staged.iter().filter(|(i, _, _)| i.side == Side::Ours).map(|(_, e, _)| e)));
     let their_sets = sets(staged.iter().filter(|(i, _, _)| i.side == Side::Theirs).map(|(_, e, _)| e));
     let pairs = settle_status(&our_sets, &their_sets, Side::Ours, false, prefer, &mut staged, &rp.plan, &mut rp.conflicts, &mut rp.resolved);
     // What each ends in on the merged line.
@@ -640,7 +634,7 @@ fn perform_canonical(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run
         crate::state::apply_event(&mut ends, e);
     }
     for p in &pairs {
-        let end = ends.get(&p.id).map(|s| s.name()).unwrap_or("todo");
+        let end = crate::state::derived_status(&rp.plan, &ends, &p.id).name();
         out.both_touched.push(format!("{}: ours {} at {}, theirs {} at {}; {} (ends {})", rp.plan.label(&p.id), p.ours.1.name(), p.ours.2, p.theirs.1.name(), p.theirs.2, p.how(), end));
     }
     out.conflicts = rp.conflicts.clone();
@@ -886,7 +880,7 @@ fn perform_upstream(store: &Store, theirs: &Hash, prefer: Option<Side>, dry_run:
         crate::state::apply_event(&mut ends, e);
     }
     for p in pairs.iter().filter(|p| p.agree() || p.preferred.is_some()) {
-        let end = ends.get(&p.id).map(|s| s.name()).unwrap_or("todo");
+        let end = crate::state::derived_status(&rp.plan, &ends, &p.id).name();
         let stands_side = p.preferred.unwrap_or(rside);
         let (stands, other) = if stands_side == Side::Theirs { (&p.theirs.2, &p.ours.2) } else { (&p.ours.2, &p.theirs.2) };
         out.both.push(Both {

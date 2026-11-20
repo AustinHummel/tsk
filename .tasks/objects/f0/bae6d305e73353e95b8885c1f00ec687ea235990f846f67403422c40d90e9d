@@ -1,0 +1,10 @@
+task
+{
+  "id": "t115",
+  "title": "Fix the review of 12.11: both-sides report and derived ends",
+  "parent": "t96",
+  "seq": 115,
+  "body": "",
+  "types": [],
+  "fit": "the blind review's findings on dfffb09: the canonical merge hid a real both-sides status change from the copy that merges second by leaving out events their side already held, and the report's (ends ...) said todo for a task no longer a leaf"
+}

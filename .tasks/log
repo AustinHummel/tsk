@@ -216,3 +216,6 @@
 2026-11-20T03:46:44Z  e2f44bdaab  edited           edit 12.11 (body)  [12.11]  -- opus builder canonical-status-merge 2026-11-19
 2026-11-20T03:46:44Z  cb8c0c95b5  started          start 12.11  [12.11]  -- opus builder canonical-status-merge 2026-11-19
 2026-11-20T03:46:44Z  534eb8ecb4  completed        complete 12.11  [12.11]  -- opus builder canonical-status-merge 2026-11-19
+2026-11-20T04:01:46Z  7a0640ea4f  amended          amend 12 with Fix the review of 12.11: both-sides report and derived ends  [12 12.12]  -- opus builder 0.7.0 review-fixes and release prep 2026-11-19
+2026-11-20T04:01:51Z  4673543988  started          start 12.12  [12.12]  -- opus builder 0.7.0 review-fixes and release prep 2026-11-19
+2026-11-20T04:01:51Z  ff388a0c75  completed        complete 12.12  [12.12]  -- opus builder 0.7.0 review-fixes and release prep 2026-11-19

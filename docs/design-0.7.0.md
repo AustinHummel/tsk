@@ -138,7 +138,13 @@ figure out how it should be resolved on a case-by-case basis."
     the old fork counts. Stopping there refused a copy that had seen
     the other's `complete` and then uncompleted it (only one side
     changed the status since the two met), and only from one side. The
-    pairs now leave out an event of ours their side already holds.
+    report still names that task from the copy whose own `complete` is
+    among its events since the fork; it is a report, not a stop. An
+    event of ours their side already holds is not left out of the
+    pairs: holding it does not mean they knew of it when they changed
+    the status (a blind review of the first version, which left it out,
+    found a real both-sides change hidden from the copy that merged
+    second).
   - A second copy was asked again for the same task, and opposite
     `--prefer` answers on two copies left them disagreeing for good
     while each said "already merged".

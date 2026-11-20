@@ -325,6 +325,12 @@ impl Derived {
     }
 }
 
+/// One task's derived status on a plan, from its leaves' statuses: a
+/// task that is no longer a leaf takes its children's.
+pub fn derived_status(plan: &Plan, leaf: &HashMap<TaskId, Status>, id: &str) -> Status {
+    status_of(plan, leaf, id, &mut HashMap::new())
+}
+
 fn status_of(plan: &Plan, leaf: &HashMap<TaskId, Status>, id: &str, memo: &mut HashMap<TaskId, Status>) -> Status {
     if let Some(s) = memo.get(id) {
         return *s;

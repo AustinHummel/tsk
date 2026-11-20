@@ -1,0 +1,14 @@
+event
+{
+  "kind": "Amended",
+  "parent": "534eb8ecb4e3d1362a5b3755bf16a7bdc472c021137cbf3fe50b16949e36f5e6",
+  "snapshot": "304ab5daef9681f2902b5a06f3dc6fd14429b09d3759b91e3187b7e2ecfad86b",
+  "time": "2026-11-20T04:01:46Z",
+  "author": "opus builder 0.7.0 review-fixes and release prep 2026-11-19",
+  "message": "amend 12 with Fix the review of 12.11: both-sides report and derived ends",
+  "subjects": [
+    "t96",
+    "t115"
+  ],
+  "forced": false
+}

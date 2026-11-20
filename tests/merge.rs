@@ -193,9 +193,33 @@ fn a_canonical_merge_through_the_pending_marker_reports_status_on_both_sides() {
     assert_eq!(a.read(".tasks/HEAD").lines().count(), 1, "settled");
 }
 
-/// A complete merged both ways, then uncompleted on one copy: only that
-/// copy changed the status since the two last met, so neither merge stops
-/// or claims both sides changed it, and the copies agree.
+/// The copy that merges second is told of a status changed on both sides
+/// too: holding an event of ours does not mean their side knew of it when
+/// it changed the status (b started 1.1 unaware of a's complete).
+#[test]
+fn a_status_changed_on_both_sides_is_reported_by_the_copy_that_merges_second() {
+    let (a, b) = pair("second-reports", None);
+    a.ok(&["start", "1.1"]);
+    a.ok(&["complete", "1.1"]);
+    later();
+    b.ok(&["start", "1.1"]);
+    bring_objects(&a.dir, &b.dir);
+    bring_objects(&b.dir, &a.dir);
+    let out = b.ok(&["merge", &head(&a)]);
+    assert!(out.contains("status on both sides"), "{}", out);
+    bring_objects(&b.dir, &a.dir);
+    let out = a.ok(&["merge", &head(&b)]);
+    assert!(out.contains("status on both sides") && out.contains("(ends in-progress)"), "the second copy is told too: {}", out);
+    let (pa, pb) = (a.ok(&["plan", "-a"]), b.ok(&["plan", "-a"]));
+    assert!(pa.contains("[>] 1.1"), "the later start stands: {}", pa);
+    assert_eq!(pa, pb, "both copies end the same");
+}
+
+/// A complete merged both ways, then uncompleted on one copy: neither merge
+/// stops, and the copies agree. Every task whose status changed on both
+/// sides since the fork is reported, and the canonical fork never advances,
+/// so the complete (ours on a) and the uncomplete (theirs) are reported as
+/// both sides; the uncomplete, the later, stands.
 #[test]
 fn an_informed_uncomplete_merges_cleanly_from_both_copies() {
     let (a, b) = pair("informed", None);
@@ -215,12 +239,39 @@ fn an_informed_uncomplete_merges_cleanly_from_both_copies() {
     bring_objects(&a.dir, &b.dir);
     let (ha, hb) = (head(&a), head(&b));
     let out = a.ok(&["merge", &hb]);
-    assert!(out.contains("merged") && !out.contains("status on both sides"), "{}", out);
+    assert!(out.contains("merged") && out.contains("status on both sides: 1.1 t2 Gather requirements: ours completed at ") && out.contains(", theirs uncompleted at ") && out.contains("; the later stands (ends todo)"), "{}", out);
+    // b already holds a's complete, and a's side holds no status event b
+    // lacks, so b's merge changes no status and reports none.
     let out = b.ok(&["merge", &ha]);
     assert!(out.contains("merged") && !out.contains("status on both sides"), "{}", out);
     let (pa, pb) = (a.ok(&["plan", "-a"]), b.ok(&["plan", "-a"]));
     assert!(pa.contains("[ ] 1.1"), "the uncomplete stands: {}", pa);
     assert_eq!(pa, pb, "both copies end the same");
+}
+
+/// A task touched on both sides that is no longer a leaf on the merged line
+/// ends in its derived status, read from its children, on both merges (a
+/// piece under it started: in progress, not "todo").
+#[test]
+fn a_task_cut_in_two_ends_in_its_derived_status_in_the_report() {
+    let (a, b) = pair("ends-derived", None);
+    a.ok(&["complete", "1.1"]);
+    later();
+    b.ok(&["start", "1.1"]);
+    b.ok(&["amend", "1.1", "piece", "--fit", "a part", "--core", "the rest"]);
+    b.ok(&["start", "1.1.1"]);
+    bring_objects(&b.dir, &a.dir);
+    let out = a.ok(&["merge", &head(&b)]);
+    assert!(out.contains("status on both sides: 1.1 ") && out.contains("(ends in-progress)"), "canonical: {}", out);
+    let (c, d) = pair("ends-derived-keyed", Some(("m", "p")));
+    c.ok(&["complete", "1.1"]);
+    later();
+    d.ok(&["start", "1.1"]);
+    d.ok(&["amend", "1.1", "piece", "--fit", "a part", "--core", "the rest"]);
+    d.ok(&["start", "1.1.1"]);
+    bring_objects(&d.dir, &c.dir);
+    let out = c.ok(&["merge", "--upstream", &head(&d), "--prefer", "theirs"]);
+    assert!(out.contains("ends in-progress"), "shared line: {}", out);
 }
 
 /// A status changed on both sides ends the same on both copies whichever
