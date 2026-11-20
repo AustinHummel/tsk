@@ -13,8 +13,8 @@ commands are the [README](README.md); the mindset is
 A CLI for planning and tracking work, built the way Git is built: every
 change is an immutable event pointing at a snapshot of the whole plan, and
 status, readiness and loops are computed from history, never stored. Rust
-2021, one binary, pure-Rust dependencies, about 7,000 lines in fourteen
-modules under `src/`, 92 end-to-end tests under `tests/`. Version 0.6.0
+2021, one binary, pure-Rust dependencies, about 8,200 lines in fourteen
+modules under `src/`, 92 end-to-end tests under `tests/`. Version 0.7.0
 (`Cargo.toml`). Public at https://github.com/AustinHummel/tsk, MIT.
 
 It is Austin Hummel's tool, maintained by his org's agents (his decision,

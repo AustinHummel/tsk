@@ -1,0 +1,13 @@
+event
+{
+  "kind": "Completed",
+  "parent": "fa27027e4c3208eea54e6245b906665e83800e212471611570e1a9a6340ce769",
+  "snapshot": "304ab5daef9681f2902b5a06f3dc6fd14429b09d3759b91e3187b7e2ecfad86b",
+  "time": "2026-11-20T04:06:31Z",
+  "author": "opus builder 0.7.0 review-fixes and release prep 2026-11-19",
+  "message": "complete 12.5.5",
+  "subjects": [
+    "t106"
+  ],
+  "forced": false
+}

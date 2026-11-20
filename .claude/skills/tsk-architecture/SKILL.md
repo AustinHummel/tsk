@@ -39,8 +39,11 @@ happened; everything else is derived on read.**
   and why and exits 1; `--force` is the only override and is recorded.
   Prevents: a plan that quietly disagrees with the method it serves.
 - **Ids and positions are fixed; numbers are derived.** `t17` is for
-  life; `1.2.4` is computed from creation order. Prevents: references in
-  notes and logs going stale.
+  life; `1.2.4` is computed from creation order. On a keyed store
+  (`tsk config ids keyed`, a key per copy from `tsk key`) every new id
+  carries its copy's key (`t150m`), so two copies never mint the same
+  one, and no merge renames a keyed id. Prevents: references in notes
+  and logs going stale.
 - **Snapshots are trees, and the cache is keyed by hash.** An event costs
   one path of the plan; `.tasks/cache/` memoizes what a hash implies and
   so can never be stale. Prevents: cost growing with history, and the
@@ -65,13 +68,13 @@ summary. Detail, including the object and event model, is
 | Porcelain | `commands.rs` | Every command that writes (add, breakdown, link, set, start …), the `Ctx` (store + plan + loaded HEAD + derived), `open`/`open_rw`, plumbing (`cat-object`, `hash-object`, `ls-snapshot`, `rev-list`), config, reflog, reset. | Rendering, merging. |
 | Views | `views.rs` | Every read-only command: show, context, plan, ready, loops, stale, forced, log, diff. | Writes. |
 | Breakdown file | `breakdown.rs` | Parsing and templating the `= child:` / `= narrative` / `= req` form. | The breakdown's semantics (those are in `commands::breakdown`). |
-| Merge | `merge.rs` | Canonical replay of another copy's events, conflicts and `--prefer`, the git merge driver, `git-setup`, settling a pending HEAD. | Ordinary commits. |
+| Merge | `merge.rs` | Canonical replay of another copy's events (the later status stands, reported); the shared-line merge (`--upstream`, and the driver on a keyed store), which keeps their line event for event and stops on a status changed on both sides; conflicts and `--prefer`, the git merge driver, `git-setup`, settling a pending HEAD and which side is published. | Ordinary commits. |
 | Prune | `prune.rs` | Removing old snapshots and the objects only they reach; never events. | — |
 | Render | `render.rs` | `tasks/<id>.md` pages and the outline; backlinks. | Reading the store directly (it goes through `Ctx`). |
 | CLI | `main.rs` | The clap `Cmd` and `TypeCmd` enums, global flags (`--store`, `-C`, `--json`), the dispatch `match`. | Behaviour. |
 
-Hot spots by size: `commands.rs` (1,585 lines), `views.rs` (1,317),
-`store.rs` (795), `merge.rs` (733). Adding to them is normal; splitting
+Hot spots by size: `commands.rs` (1,641 lines), `merge.rs` (1,491),
+`views.rs` (1,317), `store.rs` (972). Adding to them is normal; splitting
 one is a task of its own, not a side effect.
 
 ## Extension points

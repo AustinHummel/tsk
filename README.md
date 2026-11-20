@@ -64,6 +64,14 @@ cargo install --git https://github.com/AustinHummel/tsk --force
 
 Or `cargo install --path .` from a clone. `tsk --version` says what you have.
 
+**Upgrading to 0.7.0 raises every store it writes to format 3**, keyed or
+not: installing it upgrades every store on the machine at that store's
+next write (a read leaves it alone), and a 0.6.0 on another machine then
+refuses that store ("tsk 0.6.0 reads up to format 2: upgrade tsk"). The
+machines that share a store upgrade together, with the store committed
+first. Run `tsk git-setup` again after installing it: the driver now
+takes `%P`.
+
 ## Commands
 
 Process (porcelain):
@@ -100,9 +108,10 @@ Process (porcelain):
 | `backlinks <task>` | Markdown files in the project that link to the task's page. |
 | `prune [--before E] [--dry-run]` | Drop old snapshots; every event and the log stay. |
 | `reflog`, `reset <event>` | Every move of HEAD on this copy, and the way back to any of them. |
-| `merge [theirs] [--prefer ours\|theirs] [--dry-run] [--upstream]` | Replay another copy's events onto ours. `merge --settled` only asks whether `.tasks/HEAD` is settled (exit 0 or 1, nothing written). |
-| `git-setup` | Register the git merge driver for `.tasks/HEAD` (once per machine). |
-| `config [key [value]]` | `author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`, `color.ui`, `require.by` (`true`: a root without `--by` is refused). |
+| `merge [theirs] [--prefer ours\|theirs] [--dry-run] [--upstream]` | Replay another copy's events onto ours. `--upstream`: theirs is the shared line, kept event for event; ours goes on top, and no id or number on it moves. `merge --settled` only asks whether `.tasks/HEAD` is settled (exit 0 or 1, nothing written). |
+| `git-setup` | Register the git merge driver for `.tasks/HEAD` (once per machine, and again after installing 0.7.0). |
+| `key [letters]` | This copy's writer key: print it, or set it (1 to 3 lowercase letters no other copy uses). Kept in `.tasks/key`, which git never carries; no event. |
+| `config [key [value]]` | `author`, `editor`, `render.dir`, `lock.timeout`, `lock.stale`, `color.ui`, `require.by` (`true`: a root without `--by` is refused), `ids` (`keyed`: writer keys on, for every copy), `shared` (the git ref of the shared line, default `origin/main`). |
 
 Plumbing: `cat-object <hash>`, `hash-object [file]`, `ls-snapshot [event]`,
 `rev-list`, `merge-driver`. Every view takes `--json`.
@@ -187,7 +196,9 @@ finds the lock held waits (with backoff) up to `lock.timeout` seconds
 (default 30) and then says who holds it. A lock left by a process that
 crashed is broken at once when tsk can tell its process has exited (same
 machine), and otherwise once it is older than `lock.stale` seconds
-(default 60); either way the break is reported. Both can be set per store
+(default 60); either way the break is reported. On Windows, a lock file
+that cannot be created for a moment while the last holder's is being
+deleted is waited on like a held lock, not taken for an error. Both can be set per store
 with `tsk config` or per process with `TSK_LOCK_TIMEOUT` /
 `TSK_LOCK_STALE`.
 
@@ -198,7 +209,12 @@ writer that read the same HEAD finds the claim taken and stops with
 "the store moved ... nothing was written. Run it again", exit code 3.
 So two processes can never both commit on top of the same event, however
 the lock was obtained, broken, or misconfigured: a reported save is
-always on the line. Breaking a stale lock takes the file aside and checks
+always on the line. A claim holds its writer's pid and program name; one
+left behind by a writer that was killed between claiming and moving HEAD
+(HEAD still at its parent, its process gone) guards nothing and is passed
+over to the next name, `<event>.1`, never deleted, so it cannot wedge the
+store; a live writer's claim still refuses, naming the file. Breaking a
+stale lock takes the file aside and checks
 it is the one that was judged stale, by token, handing back any newer
 lock it displaced; a displaced lock's owner sees its token gone and stops.
 
@@ -278,12 +294,12 @@ and 966 events, `ready` and `plan` take under 20 ms and a change under
 `forced`, `diff`) still read it, and `prune` is for size, not speed.
 
 `.tasks/config` declares the store's `format` (1 since 0.5.0, 2 since
-0.6.0; a store from before carries no line and reads as before, and the
-first write by a newer binary raises it). A binary that meets a format
-newer than it knows refuses with one sentence naming the version needed,
-rather than misread the store; every older form is always read. Every
-machine sharing a store upgrades together: once one 0.6.0 writes, a
-0.5.0 on another machine refuses until it is upgraded.
+0.6.0, 3 since 0.7.0; a store from before carries no line and reads as
+before, and the first write by a newer binary raises it). A binary that
+meets a format newer than it knows refuses with one sentence naming the
+version needed, rather than misread the store; every older form is always
+read. Every machine sharing a store upgrades together: once one 0.7.0
+writes, a 0.6.0 on another machine refuses until it is upgraded.
 
 Commit `.tasks/` with your project. `.tasks/log` has one line per event
 (time, event, kind, message, tasks, author), appended by every command, so
@@ -333,6 +349,24 @@ and the preferred side's status stands; the same status on both sides
 is none. Two copies that both write and want a status collision to stop
 should turn writer keys on (`tsk config ids keyed`, then `tsk key
 <name>` on each copy) and merge with `--upstream`.
+
+**Writer keys and the shared line.** Two copies that both write mint the
+same next id, and the canonical merge renames one of them; and because
+its order is the clock's, an older unpublished task of ours can take an
+outline number someone already read. Both are opt-in fixes, off until a
+store asks. `tsk config ids keyed` (committed with the store) turns writer
+keys on for every copy, and each copy then names its own with `tsk key
+<letters>`, 1 to 3 lowercase letters no other copy uses; tsk holds no
+letters of its own. On a keyed store every new id carries its copy's key
+(`t150m`, `r98m`), so two copies never make the same id, and a copy with
+no key refuses only the commands that make ids, naming `tsk key`. `tsk
+merge <theirs> --upstream` treats their line as the shared one: it is kept
+event for event, same hashes, and our events since the fork are replayed
+on top of it in our own order. Every id and number on the shared line
+stays; a task of ours that is new takes the next position, and each of
+our numbers that moved is reported. A keyed id is never renamed by any
+merge. `--upstream` works on any store; on a keyed store, git's driver
+merges this way too, and refuses during a rebase.
 `--dry-run` shows all of this without writing.
 
 Git carries the objects (add-only, never a conflict); only `HEAD` can

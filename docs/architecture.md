@@ -75,14 +75,16 @@ snapshot's paths; `rev-list` walks the chain.
   `snapshot`, `time` (UTC, to the second), `author`, `message`,
   `subjects`, `group` (a start or complete done together), `forced`,
   `replayed_from`.
-- **Store format**: `.tasks/config` carries `format = 2` (since 0.6.0;
+- **Store format**: `.tasks/config` carries `format = 3` (since 0.7.0;
   `store::FORMAT`). `init` writes it, the first write by a newer binary
   raises it, `store_open` refuses a format above what the binary knows.
   A store without the line is format 0 and reads as before. The number
   moves only when something on disk changes shape; 1 (0.5.0) added the
   `adopted` event kind and a task's `former` positions; 2 (0.6.0) added
   the `closed` and `reopened` event kinds and a task's `fit`, `ongoing`
-  and `after`.
+  and `after`; 3 (0.7.0) added writer keys (config `ids = keyed`, ids
+  such as `t150m`), and every store, keyed or not, is raised to it by its
+  first 0.7.0 write.
 
 ## How a write happens (`commands.rs` → `commit.rs` → `store.rs`)
 
